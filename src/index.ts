@@ -3,8 +3,9 @@ import cors from 'cors'
 import sessionRouter from './routes/session'
 
 const app = express()
-app.use(cors({ origin: 'http://localhost:5173' }))
+app.use(cors())
 app.use(express.json())
 app.use('/api/session', sessionRouter)
 
-app.listen(3001, () => console.log('Backend läuft auf :3001'))
+const PORT = Number(process.env.PORT) || 3001
+app.listen(PORT, () => console.log(`Backend läuft auf :${PORT}`))
