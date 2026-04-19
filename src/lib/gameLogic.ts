@@ -1,5 +1,5 @@
-import { Grade, Session, RoundResult, SellerDecision, BuyerDecision } from '../../../shared/types'
-import { BUYER_VALUES, sellerCost } from '../../../shared/constants'
+import { Grade, Session, RoundResult, SellerDecision, BuyerDecision } from '../shared/types'
+import { BUYER_VALUES, sellerCost } from '../shared/constants'
 
 export function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr]

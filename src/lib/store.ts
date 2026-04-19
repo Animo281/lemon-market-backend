@@ -1,4 +1,4 @@
-import { Session } from '../../../shared/types'
+import { Session } from '../shared/types'
 
 const sessions = new Map<string, Session>()
 const codeToId = new Map<string, string>()

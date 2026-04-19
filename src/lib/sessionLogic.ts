@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid'
-import { Session, Player, Role, PublicSession } from '../../../shared/types'
-import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS } from '../../../shared/constants'
+import { Session, Player, Role, PublicSession } from '../shared/types'
+import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS } from '../shared/constants'
 import { getSessionByCode } from './store'
 
 function generateCode(): string {

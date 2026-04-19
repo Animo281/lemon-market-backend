@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
-import { Grade, Role } from '../../../shared/types'
-import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS } from '../../../shared/constants'
+import { Grade, Role } from '../shared/types'
+import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS } from '../shared/constants'
 import { createSession, joinSession, isSlotTaken, findPlayer, isAdminToken, toPublic } from '../lib/sessionLogic'
 import { shuffleArray, calculateBuyerEarnings, computeRoundResult, advanceRound } from '../lib/gameLogic'
 import { getSessionByCode, setSession } from '../lib/store'
