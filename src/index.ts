@@ -32,6 +32,32 @@ const swaggerSpec = swaggerJsdoc({
             slotIndex: { type: 'integer' },
           },
         },
+        RoundMetrics: {
+          type: 'object',
+          properties: {
+            totalSellerProfit: { type: 'number' },
+            totalBuyerProfit: { type: 'number' },
+            avgTransactionPrice: { type: 'number', nullable: true },
+            transactions: { type: 'integer' },
+            theoreticalMaxSurplus: { type: 'number' },
+            efficiency: { type: 'number', description: 'totalSurplus / theoreticalMax (0–1)' },
+            equilibrium: { type: 'object', nullable: true, properties: { qty: { type: 'integer' }, price: { type: 'number' } } },
+            supplyCurve: { type: 'array', items: { type: 'number' } },
+            demandCurve: { type: 'array', items: { type: 'number' } },
+          },
+        },
+        AvailableOffer: {
+          type: 'object',
+          properties: {
+            sellerId: { type: 'string' },
+            sellerName: { type: 'string' },
+            unitsOffered: { type: 'integer' },
+            unitsSold: { type: 'integer' },
+            unitsRemaining: { type: 'integer' },
+            price: { type: 'number', nullable: true },
+            grade: { type: 'integer', nullable: true, enum: [1, 2, 3] },
+          },
+        },
         PublicSession: {
           type: 'object',
           properties: {
@@ -46,6 +72,23 @@ const swaggerSpec = swaggerJsdoc({
             totalRounds: { type: 'integer' },
             players: { type: 'array', items: { $ref: '#/components/schemas/PublicPlayer' } },
             results: { type: 'array', items: { $ref: '#/components/schemas/RoundResult' } },
+            currentPlayerId: { type: 'string', nullable: true, description: 'ID of the buyer whose turn it is (market phase only)' },
+            availableOffers: { type: 'array', items: { $ref: '#/components/schemas/AvailableOffer' } },
+            economics: {
+              type: 'object',
+              properties: {
+                buyerValues: { type: 'object', description: 'Grade → buyer WTP: {1: 4.0, 2: 8.8, 3: 13.6}' },
+                sellerCosts: { type: 'array', items: { type: 'object', properties: { grade: { type: 'integer' }, first: { type: 'number' }, second: { type: 'number' } } } },
+              },
+            },
+            limits: {
+              type: 'object',
+              properties: {
+                maxSellerUnits: { type: 'integer' },
+                maxRounds: { type: 'integer' },
+              },
+            },
+            currentRoundMetrics: { $ref: '#/components/schemas/RoundMetrics', nullable: true },
           },
         },
         RoundResult: {
@@ -54,8 +97,9 @@ const swaggerSpec = swaggerJsdoc({
             round: { type: 'integer' },
             infoMode: { type: 'string', enum: ['full', 'asymmetric'] },
             totalSurplus: { type: 'number' },
-            sellerDecisions: { type: 'array', items: { type: 'object' } },
+            sellerDecisions: { type: 'array', items: { type: 'object', properties: { playerId: { type: 'string' }, grade: { type: 'integer' }, price: { type: 'number' }, unitsSold: { type: 'integer' }, earnings: { type: 'number' } } } },
             buyerDecisions: { type: 'array', items: { type: 'object' } },
+            metrics: { $ref: '#/components/schemas/RoundMetrics' },
           },
         },
         Error: {
