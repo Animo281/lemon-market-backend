@@ -1,5 +1,6 @@
 import { Grade, Session, RoundResult, SellerDecision, BuyerDecision } from '../shared/types'
 import { BUYER_VALUES, sellerCost } from '../shared/constants'
+import { computeSellerEarnings, computeRoundMetrics } from '../services/gameAnalytics'
 
 export function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr]
@@ -21,25 +22,29 @@ export function computeRoundResult(session: Session): RoundResult {
 
   const sellerDecisions: SellerDecision[] = sellers.map(seller => {
     const d = session.currentSellerDecisions[seller.id]
+    const grade = (d?.grade ?? 1) as Grade
+    const price = d?.price ?? 0
+    const unitsSold = d?.unitsSold ?? 0
     return {
       playerId: seller.id,
-      grade: (d?.grade ?? 1) as Grade,
-      price: d?.price ?? 0,
+      grade,
+      price,
       unitsOffered: d?.unitsOffered ?? session.maxSellerUnits,
-      unitsSold: d?.unitsSold ?? 0,
+      unitsSold,
       confirmed: true,
+      earnings: computeSellerEarnings(grade, price, unitsSold),
     }
   })
 
-  const buyerDecisions: BuyerDecision[] = buyers.map(buyer => {
-    return session.currentBuyerDecisions[buyer.id] ?? {
+  const buyerDecisions: BuyerDecision[] = buyers.map(buyer =>
+    session.currentBuyerDecisions[buyer.id] ?? {
       playerId: buyer.id,
       sellerId: null,
       grade: null,
       price: null,
       earnings: 0,
     }
-  })
+  )
 
   let totalSurplus = 0
   for (const sd of sellerDecisions) {
@@ -51,19 +56,18 @@ export function computeRoundResult(session: Session): RoundResult {
     totalSurplus += bd.earnings
   }
 
-  return { round: session.currentRound, infoMode: session.infoMode, sellerDecisions, buyerDecisions, totalSurplus }
+  const metrics = computeRoundMetrics(session, sellerDecisions, buyerDecisions, session.infoMode, totalSurplus)
+
+  return { round: session.currentRound, infoMode: session.infoMode, sellerDecisions, buyerDecisions, totalSurplus, metrics }
 }
 
 export function advanceRound(session: Session): Session {
   const nextRound = session.currentRound + 1
-  const nextInfoMode = session.infoMode  // admin toggles manually via toggle-info-mode
   const nextPhase = nextRound > session.totalRounds ? 'game-end' : 'seller-input'
   const buyers = session.players.filter(p => p.role === 'buyer')
-
   return {
     ...session,
     currentRound: nextRound,
-    infoMode: nextInfoMode,
     phase: nextPhase,
     buyerQueue: shuffleArray(buyers.map(b => b.id)),
     currentBuyerIndex: 0,
