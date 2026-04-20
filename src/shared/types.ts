@@ -4,7 +4,15 @@ export type InfoMode = 'full' | 'asymmetric'
 export type Role = 'seller' | 'buyer'
 
 export interface Player {
-  id: string       // UUID — also serves as playerToken
+  id: string
+  token: string   // opaque auth token — never sent to clients
+  name: string
+  role: Role
+  slotIndex: number
+}
+
+export interface PublicPlayer {
+  id: string
   name: string
   role: Role
   slotIndex: number
@@ -54,5 +62,6 @@ export interface Session {
   results: RoundResult[]
 }
 
-// Sent to clients — adminToken stripped
-export type PublicSession = Omit<Session, 'adminToken'>
+export interface PublicSession extends Omit<Session, 'adminToken' | 'players'> {
+  players: PublicPlayer[]
+}
