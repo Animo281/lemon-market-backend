@@ -4,6 +4,7 @@
     "module": "commonjs",
     "lib": ["es2020"],
     "strict": true,
+    "noUnusedLocals": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "dist",
