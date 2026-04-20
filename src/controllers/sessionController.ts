@@ -47,5 +47,17 @@ export function createSessionController(repo: SessionRepository) {
     nextRound(req: Request, res: Response): void {
       res.json(toPublic(service.advanceToNextRound(repo, req.session!)))
     },
+
+    kick(req: Request, res: Response): void {
+      res.json(toPublic(service.kickPlayer(repo, req.session!, req.params.playerId)))
+    },
+
+    skipBuyer(req: Request, res: Response): void {
+      res.json(toPublic(service.skipCurrentBuyer(repo, req.session!)))
+    },
+
+    forceAdvance(req: Request, res: Response): void {
+      res.json(toPublic(service.forceAdvanceFromSellerInput(repo, req.session!)))
+    },
   }
 }

@@ -25,6 +25,9 @@ export function createSessionRouter(repo: SessionRepository): Router {
   router.post('/:code/buyer-decision', loadSession, requirePlayer('buyer'), validate(buyerDecisionSchema), ctrl.buyerDecision)
   router.post('/:code/toggle-info-mode', loadSession, requireAdmin, ctrl.toggleInfoMode)
   router.post('/:code/next-round', loadSession, requireAdmin, ctrl.nextRound)
+  router.delete('/:code/players/:playerId', loadSession, requireAdmin, ctrl.kick)
+  router.post('/:code/skip-buyer', loadSession, requireAdmin, ctrl.skipBuyer)
+  router.post('/:code/force-advance', loadSession, requireAdmin, ctrl.forceAdvance)
 
   return router
 }

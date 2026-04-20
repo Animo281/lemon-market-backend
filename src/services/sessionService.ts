@@ -5,6 +5,24 @@ import { SessionRepository } from '../repositories/sessionRepository'
 import { HttpError } from '../middleware/errorHandler'
 import { shuffleArray, calculateBuyerEarnings, computeRoundResult, advanceRound } from '../lib/gameLogic'
 
+function checkPhaseTransition(session: Session): void {
+  if (session.phase === 'seller-input') {
+    const sellers = session.players.filter(p => p.role === 'seller')
+    if (sellers.every(s => s.id in session.currentSellerDecisions)) {
+      const buyers = session.players.filter(p => p.role === 'buyer')
+      session.phase = 'market'
+      session.buyerQueue = shuffleArray(buyers.map(b => b.id))
+      session.currentBuyerIndex = 0
+    }
+  } else if (session.phase === 'market') {
+    const buyers = session.players.filter(p => p.role === 'buyer')
+    if (Object.keys(session.currentBuyerDecisions).length >= buyers.length) {
+      session.results.push(computeRoundResult(session))
+      session.phase = 'round-end'
+    }
+  }
+}
+
 function generateCode(): string {
   return Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
 }
@@ -112,13 +130,7 @@ export function submitSellerDecision(
   const offered = Math.min(session.maxSellerUnits, Math.max(1, unitsOffered ?? session.maxSellerUnits))
   session.currentSellerDecisions[playerId] = { playerId, grade, price, unitsOffered: offered, unitsSold: 0, confirmed: false }
 
-  const sellers = session.players.filter(p => p.role === 'seller')
-  if (sellers.every(s => s.id in session.currentSellerDecisions)) {
-    const buyers = session.players.filter(p => p.role === 'buyer')
-    session.phase = 'market'
-    session.buyerQueue = shuffleArray(buyers.map(b => b.id))
-    session.currentBuyerIndex = 0
-  }
+  checkPhaseTransition(session)
 
   repo.save(session)
   return session
@@ -150,11 +162,7 @@ export function submitBuyerDecision(
 
   session.currentBuyerDecisions[playerId] = { playerId, sellerId, grade, price, earnings }
 
-  const buyers = session.players.filter(p => p.role === 'buyer')
-  if (Object.keys(session.currentBuyerDecisions).length >= buyers.length) {
-    session.results.push(computeRoundResult(session))
-    session.phase = 'round-end'
-  }
+  checkPhaseTransition(session)
 
   repo.save(session)
   return session
@@ -170,6 +178,63 @@ export function toggleInfoMode(repo: SessionRepository, session: Session): Sessi
 export function advanceToNextRound(repo: SessionRepository, session: Session): Session {
   if (session.phase !== 'round-end') throw new HttpError(400, 'Wrong phase')
   Object.assign(session, advanceRound(session))
+  repo.save(session)
+  return session
+}
+
+export function kickPlayer(repo: SessionRepository, session: Session, playerId: string): Session {
+  const exists = session.players.some(p => p.id === playerId)
+  if (!exists) throw new HttpError(404, 'Player not found')
+
+  session.players = session.players.filter(p => p.id !== playerId)
+  session.buyerQueue = session.buyerQueue.filter(id => id !== playerId)
+  delete session.currentSellerDecisions[playerId]
+  delete session.currentBuyerDecisions[playerId]
+
+  checkPhaseTransition(session)
+  repo.save(session)
+  return session
+}
+
+export function skipCurrentBuyer(repo: SessionRepository, session: Session): Session {
+  if (session.phase !== 'market') throw new HttpError(400, 'Wrong phase')
+
+  const currentPlayerId = session.buyerQueue[session.currentBuyerIndex] ?? null
+  if (!currentPlayerId) throw new HttpError(400, 'No current buyer')
+  if (session.currentBuyerDecisions[currentPlayerId]) throw new HttpError(400, 'Current buyer already submitted')
+
+  session.currentBuyerDecisions[currentPlayerId] = {
+    playerId: currentPlayerId,
+    sellerId: null,
+    grade: null,
+    price: null,
+    earnings: 0,
+  }
+
+  checkPhaseTransition(session)
+  repo.save(session)
+  return session
+}
+
+export function forceAdvanceFromSellerInput(repo: SessionRepository, session: Session): Session {
+  if (session.phase !== 'seller-input') throw new HttpError(400, 'Wrong phase')
+
+  const sellers = session.players.filter(p => p.role === 'seller')
+  for (const seller of sellers) {
+    if (!(seller.id in session.currentSellerDecisions)) {
+      session.currentSellerDecisions[seller.id] = {
+        playerId: seller.id,
+        grade: 1,
+        price: 0,
+        unitsOffered: 0,
+        unitsSold: 0,
+        confirmed: false,
+        earnings: 0,
+      }
+    }
+  }
+
+  checkPhaseTransition(session)
   repo.save(session)
   return session
 }
