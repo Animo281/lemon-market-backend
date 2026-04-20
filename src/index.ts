@@ -240,6 +240,48 @@ const paths: Record<string, object> = {
       },
     },
   },
+  '/session/{code}/players/{playerId}': {
+    delete: {
+      summary: 'Kick player (admin)',
+      tags: ['Admin'],
+      security: [{ token: [] }],
+      parameters: [
+        { name: 'code', in: 'path', required: true, schema: { type: 'string' } },
+        { name: 'playerId', in: 'path', required: true, schema: { type: 'string' } },
+      ],
+      responses: {
+        200: { description: 'PublicSession', content: { 'application/json': { schema: { $ref: '#/components/schemas/PublicSession' } } } },
+        403: { description: 'Forbidden', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        404: { description: 'Player not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+      },
+    },
+  },
+  '/session/{code}/skip-buyer': {
+    post: {
+      summary: 'Skip current buyer turn (admin, market phase)',
+      tags: ['Admin'],
+      security: [{ token: [] }],
+      parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: {
+        200: { description: 'PublicSession', content: { 'application/json': { schema: { $ref: '#/components/schemas/PublicSession' } } } },
+        400: { description: 'Wrong phase', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        403: { description: 'Forbidden', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+      },
+    },
+  },
+  '/session/{code}/force-advance': {
+    post: {
+      summary: 'Force-submit defaults for missing sellers and advance to market (admin, seller-input phase)',
+      tags: ['Admin'],
+      security: [{ token: [] }],
+      parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: {
+        200: { description: 'PublicSession', content: { 'application/json': { schema: { $ref: '#/components/schemas/PublicSession' } } } },
+        400: { description: 'Wrong phase', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        403: { description: 'Forbidden', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+      },
+    },
+  },
 }
 
 ;(swaggerSpec as { paths: object }).paths = paths
