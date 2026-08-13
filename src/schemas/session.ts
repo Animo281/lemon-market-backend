@@ -21,7 +21,7 @@ export const configSessionSchema = z.object({
 
 export const sellerDecisionSchema = z.object({
   grade: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  price: z.number().nonnegative(),
+  price: z.number().positive(),
   unitsOffered: z.number().int().min(1).optional(),
 })
 

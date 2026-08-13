@@ -3,13 +3,10 @@ import {
   getCurrentPlayerId,
   computeAvailableOffers,
   getEconomics,
-  buildSupplyCurve,
-  buildDemandCurve,
-  findEquilibrium,
   computeSellerEarnings,
-  theoreticalMaxSurplus,
+  computeRoundMetrics,
 } from '../services/gameAnalytics'
-import { MAX_SELLER_UNITS_LIMIT, MAX_ROUNDS_LIMIT } from '../shared/constants'
+import { LIMITS } from '../shared/constants'
 
 function computeCurrentRoundMetrics(session: Session): RoundMetrics | null {
   if (session.phase !== 'market' && session.phase !== 'round-end') return null
@@ -22,30 +19,10 @@ function computeCurrentRoundMetrics(session: Session): RoundMetrics | null {
       : null
   }).filter((d): d is NonNullable<typeof d> => d !== null)
 
-  const supplyCurve = buildSupplyCurve(decided)
-  const demandCurve = buildDemandCurve(decided.map(d => d.grade), session.infoMode, session.numBuyers)
-
-  const totalSellerProfit = decided.reduce((s, d) => s + d.earnings, 0)
   const buyerDecisions = Object.values(session.currentBuyerDecisions)
-  const totalBuyerProfit = buyerDecisions.reduce((s, bd) => s + bd.earnings, 0)
-  const totalSurplus = totalSellerProfit + totalBuyerProfit
+  const totalSurplus = decided.reduce((s, d) => s + d.earnings, 0) + buyerDecisions.reduce((s, bd) => s + bd.earnings, 0)
 
-  const txPrices = decided.flatMap(d => Array(d.unitsSold).fill(d.price))
-  const transactions = txPrices.length
-  const avgTransactionPrice = transactions > 0 ? txPrices.reduce((s, p) => s + p, 0) / transactions : null
-
-  const maxSurplus = theoreticalMaxSurplus(session.numBuyers)
-  return {
-    totalSellerProfit,
-    totalBuyerProfit,
-    avgTransactionPrice,
-    transactions,
-    theoreticalMaxSurplus: maxSurplus,
-    efficiency: maxSurplus > 0 ? totalSurplus / maxSurplus : 0,
-    equilibrium: findEquilibrium(supplyCurve, demandCurve),
-    supplyCurve,
-    demandCurve,
-  }
+  return computeRoundMetrics(session, decided, buyerDecisions, session.infoMode, totalSurplus)
 }
 
 export function toPublic(session: Session): PublicSession {
@@ -56,7 +33,7 @@ export function toPublic(session: Session): PublicSession {
     currentPlayerId: getCurrentPlayerId(session),
     availableOffers: computeAvailableOffers(session),
     economics: getEconomics(),
-    limits: { maxSellerUnits: MAX_SELLER_UNITS_LIMIT, maxRounds: MAX_ROUNDS_LIMIT },
+    limits: LIMITS,
     currentRoundMetrics: computeCurrentRoundMetrics(session),
   }
 }
