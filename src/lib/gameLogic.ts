@@ -1,5 +1,5 @@
 import { Grade, Session, RoundResult, SellerDecision, BuyerDecision } from '../shared/types'
-import { BUYER_VALUES, sellerCost } from '../shared/constants'
+import { BUYER_VALUES } from '../shared/constants'
 import { computeSellerEarnings, computeRoundMetrics } from '../services/gameAnalytics'
 
 export function shuffleArray<T>(arr: T[]): T[] {
@@ -13,7 +13,7 @@ export function shuffleArray<T>(arr: T[]): T[] {
 
 export function calculateBuyerEarnings(grade: Grade | null, price: number | null): number {
   if (grade === null || price === null) return 0
-  return BUYER_VALUES[grade] - price
+  return Math.round((BUYER_VALUES[grade] - price) * 100) / 100
 }
 
 export function computeRoundResult(session: Session): RoundResult {
@@ -46,15 +46,10 @@ export function computeRoundResult(session: Session): RoundResult {
     }
   )
 
-  let totalSurplus = 0
-  for (const sd of sellerDecisions) {
-    for (let i = 0; i < sd.unitsSold; i++) {
-      totalSurplus += sd.price - sellerCost(sd.grade, i)
-    }
-  }
-  for (const bd of buyerDecisions) {
-    totalSurplus += bd.earnings
-  }
+  let totalSurplus = sellerDecisions.reduce((s, sd) => s + sd.earnings, 0)
+    + buyerDecisions.reduce((s, bd) => s + bd.earnings, 0)
+
+  totalSurplus = Math.round(totalSurplus * 100) / 100
 
   const metrics = computeRoundMetrics(session, sellerDecisions, buyerDecisions, session.infoMode, totalSurplus)
 

@@ -169,8 +169,7 @@ export function submitBuyerDecision(
 }
 
 export function toggleInfoMode(repo: SessionRepository, session: Session): Session {
-  if (session.infoMode !== 'full') throw new HttpError(400, 'Info mode already locked to asymmetric')
-  session.infoMode = 'asymmetric'
+  session.infoMode = session.infoMode === 'full' ? 'asymmetric' : 'full'
   repo.save(session)
   return session
 }

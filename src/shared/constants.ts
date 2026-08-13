@@ -18,3 +18,5 @@ export const DEFAULT_TOTAL_ROUNDS = 5
 export const DEFAULT_MAX_SELLER_UNITS = 2
 export const MAX_SELLER_UNITS_LIMIT = 5
 export const MAX_ROUNDS_LIMIT = 20
+
+export const LIMITS = Object.freeze({ maxSellerUnits: MAX_SELLER_UNITS_LIMIT, maxRounds: MAX_ROUNDS_LIMIT })

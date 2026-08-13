@@ -1,6 +1,5 @@
 import { Grade, Session, RoundMetrics, AvailableOffer } from '../shared/types'
 import { BUYER_VALUES, SELLER_COSTS, sellerCost } from '../shared/constants'
-import { MAX_SELLER_UNITS_LIMIT, MAX_ROUNDS_LIMIT } from '../shared/constants'
 
 export function findEquilibrium(supply: number[], demand: number[]): { qty: number; price: number } | null {
   if (!supply.length || !demand.length) return null
@@ -49,7 +48,7 @@ export function buildSupplyCurve(
 
 export function buildDemandCurve(grades: Grade[], infoMode: 'full' | 'asymmetric', numBuyers: number): number[] {
   const wtp = infoMode === 'full' ? bestGradeWTP(grades) : calcAsymmetricWTP(grades)
-  return Array(numBuyers).fill(wtp).sort((a, b) => b - a)
+  return Array(numBuyers).fill(wtp)
 }
 
 export function computeRoundMetrics(
@@ -102,7 +101,6 @@ export function computeAvailableOffers(session: Session): AvailableOffer[] {
     const d = session.currentSellerDecisions[seller.id]
     const unitsOffered = d?.unitsOffered ?? session.maxSellerUnits
     const unitsSold = d?.unitsSold ?? 0
-    const showGrade = session.infoMode === 'full' && d?.grade !== undefined
     return {
       sellerId: seller.id,
       sellerName: seller.name,
@@ -110,20 +108,20 @@ export function computeAvailableOffers(session: Session): AvailableOffer[] {
       unitsSold,
       unitsRemaining: Math.max(0, unitsOffered - unitsSold),
       price: d?.price ?? null,
-      grade: showGrade ? (d!.grade as Grade) : null,
+      grade: session.infoMode === 'full' ? (d?.grade ?? null) : null,
     }
   })
 }
 
-export function getEconomics() {
-  return {
-    buyerValues: BUYER_VALUES,
-    sellerCosts: ([1, 2, 3] as Grade[]).map(grade => ({
-      grade,
-      first: SELLER_COSTS[grade].first,
-      second: SELLER_COSTS[grade].second,
-    })),
-  }
-}
+const ECONOMICS = Object.freeze({
+  buyerValues: BUYER_VALUES,
+  sellerCosts: ([1, 2, 3] as Grade[]).map(grade => ({
+    grade,
+    first: SELLER_COSTS[grade].first,
+    second: SELLER_COSTS[grade].second,
+  })),
+})
 
-export { MAX_SELLER_UNITS_LIMIT, MAX_ROUNDS_LIMIT }
+export function getEconomics() {
+  return ECONOMICS
+}
