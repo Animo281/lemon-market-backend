@@ -16,6 +16,17 @@ export function calculateBuyerEarnings(grade: Grade | null, price: number | null
   return Math.round((BUYER_VALUES[grade] - price) * 100) / 100
 }
 
+// Returns the index of the first buyer in the queue without a decision yet,
+// or buyerQueue.length once everyone has decided. Derived rather than
+// incremented so it stays correct even if a kick removes entries mid-round.
+export function findNextBuyerIndex(
+  buyerQueue: string[],
+  decisions: Record<string, unknown>,
+): number {
+  const next = buyerQueue.findIndex(id => !(id in decisions))
+  return next === -1 ? buyerQueue.length : next
+}
+
 export function computeRoundResult(session: Session): RoundResult {
   const sellers = session.players.filter(p => p.role === 'seller')
   const buyers = session.players.filter(p => p.role === 'buyer')

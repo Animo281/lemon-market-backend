@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculateBuyerEarnings, shuffleArray, computeRoundResult } from '../src/lib/gameLogic'
+import { calculateBuyerEarnings, shuffleArray, computeRoundResult, findNextBuyerIndex } from '../src/lib/gameLogic'
 import { Session } from '../src/shared/types'
 
 describe('calculateBuyerEarnings', () => {
@@ -42,6 +42,28 @@ describe('shuffleArray', () => {
     const original = [...arr]
     shuffleArray(arr)
     expect(arr).toEqual(original)
+  })
+})
+
+describe('findNextBuyerIndex', () => {
+  it('returns 0 when nobody has decided yet', () => {
+    expect(findNextBuyerIndex(['b1', 'b2', 'b3'], {})).toBe(0)
+  })
+
+  it('returns the index of the first undecided buyer', () => {
+    expect(findNextBuyerIndex(['b1', 'b2', 'b3'], { b1: {} })).toBe(1)
+  })
+
+  it('skips over a gap left by an already-decided buyer in the middle', () => {
+    expect(findNextBuyerIndex(['b1', 'b2', 'b3'], { b1: {}, b3: {} })).toBe(1)
+  })
+
+  it('returns buyerQueue.length once everyone has decided', () => {
+    expect(findNextBuyerIndex(['b1', 'b2'], { b1: {}, b2: {} })).toBe(2)
+  })
+
+  it('returns 0 for an empty queue', () => {
+    expect(findNextBuyerIndex([], {})).toBe(0)
   })
 })
 
