@@ -3,6 +3,7 @@ import { createMemoryRepository } from '../src/repositories/sessionRepository'
 import * as service from '../src/services/sessionService'
 import { HttpError } from '../src/middleware/errorHandler'
 import { SessionRepository } from '../src/repositories/sessionRepository'
+import { getCurrentPlayerId } from '../src/services/gameAnalytics'
 
 let repo: SessionRepository
 
@@ -176,6 +177,76 @@ describe('skipCurrentBuyer', () => {
     expect(session.currentBuyerDecisions[buyer.id]).toBeDefined()
     expect(session.currentBuyerDecisions[buyer.id].sellerId).toBeNull()
     expect(session.phase).toBe('round-end')
+  })
+})
+
+describe('currentBuyerIndex advances (bug: used to stay stuck at buyerQueue[0])', () => {
+  it('currentPlayerId moves to the next undecided buyer after a decision', () => {
+    const session = service.createSession(repo, 1, 2)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B1', 'buyer', 0)
+    service.joinSession(repo, session, 'B2', 'buyer', 1)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+    expect(session.phase).toBe('market')
+
+    const [first, second] = session.buyerQueue
+    expect(getCurrentPlayerId(session)).toBe(first)
+
+    service.submitBuyerDecision(repo, session, first, null)
+    expect(getCurrentPlayerId(session)).toBe(second)
+  })
+
+  it('skipCurrentBuyer skips whoever is actually up, not always buyerQueue[0]', () => {
+    const session = service.createSession(repo, 1, 3)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B1', 'buyer', 0)
+    service.joinSession(repo, session, 'B2', 'buyer', 1)
+    service.joinSession(repo, session, 'B3', 'buyer', 2)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+
+    const [first, second, third] = session.buyerQueue
+    service.submitBuyerDecision(repo, session, first, null)
+    expect(getCurrentPlayerId(session)).toBe(second)
+
+    // Before the fix this threw "Current buyer already submitted" because
+    // currentBuyerIndex never advanced past 0.
+    service.skipCurrentBuyer(repo, session)
+    expect(session.currentBuyerDecisions[second].sellerId).toBeNull()
+    expect(getCurrentPlayerId(session)).toBe(third)
+  })
+
+  it('kicking the current buyer mid-round moves the index to the next open buyer', () => {
+    const session = service.createSession(repo, 1, 3)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B1', 'buyer', 0)
+    service.joinSession(repo, session, 'B2', 'buyer', 1)
+    service.joinSession(repo, session, 'B3', 'buyer', 2)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+
+    const [first, second, third] = session.buyerQueue
+    service.submitBuyerDecision(repo, session, first, null)
+    expect(getCurrentPlayerId(session)).toBe(second)
+
+    service.kickPlayer(repo, session, second)
+    expect(getCurrentPlayerId(session)).toBe(third)
+  })
+
+  it('currentPlayerId is null once every buyer has decided', () => {
+    const session = service.createSession(repo, 1, 2)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B1', 'buyer', 0)
+    service.joinSession(repo, session, 'B2', 'buyer', 1)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+
+    for (const id of session.buyerQueue) {
+      service.submitBuyerDecision(repo, session, id, null)
+    }
+    expect(session.phase).toBe('round-end')
+    expect(getCurrentPlayerId(session)).toBeNull()
   })
 })
 

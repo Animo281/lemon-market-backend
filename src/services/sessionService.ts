@@ -3,7 +3,7 @@ import { Session, Player, Role, Grade } from '../shared/types'
 import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS } from '../shared/constants'
 import { SessionRepository } from '../repositories/sessionRepository'
 import { HttpError } from '../middleware/errorHandler'
-import { shuffleArray, calculateBuyerEarnings, computeRoundResult, advanceRound } from '../lib/gameLogic'
+import { shuffleArray, calculateBuyerEarnings, computeRoundResult, advanceRound, findNextBuyerIndex } from '../lib/gameLogic'
 
 function checkPhaseTransition(session: Session): void {
   if (session.phase === 'seller-input') {
@@ -15,6 +15,7 @@ function checkPhaseTransition(session: Session): void {
       session.currentBuyerIndex = 0
     }
   } else if (session.phase === 'market') {
+    session.currentBuyerIndex = findNextBuyerIndex(session.buyerQueue, session.currentBuyerDecisions)
     const buyers = session.players.filter(p => p.role === 'buyer')
     if (Object.keys(session.currentBuyerDecisions).length >= buyers.length) {
       session.results.push(computeRoundResult(session))

@@ -154,7 +154,6 @@ Session codes are 4-character uppercase alphanumeric, generated with up to 20 co
 
 ## Known Limitations
 
-- `currentBuyerIndex` is set to `0` on every phase transition but never incremented anywhere in `sessionService.ts` — so `currentPlayerId` (`buyerQueue[currentBuyerIndex]`) effectively always resolves to `buyerQueue[0]`. This is exercised as-is by `tests/gameAnalytics.test.ts`; noting it here rather than silently relying on it.
 - No reconnect mechanism — clients are responsible for persisting their own `playerToken`/`adminToken` across page reloads.
 
 ## Tests
