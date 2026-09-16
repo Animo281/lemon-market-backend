@@ -69,12 +69,15 @@ export function computeRoundResult(session: Session): RoundResult {
 
 export function advanceRound(session: Session): Session {
   const nextRound = session.currentRound + 1
-  const nextPhase = nextRound > session.totalRounds ? 'game-end' : 'seller-input'
+  const isGameEnd = nextRound > session.totalRounds
   const buyers = session.players.filter(p => p.role === 'buyer')
   return {
     ...session,
-    currentRound: nextRound,
-    phase: nextPhase,
+    // At game-end, stay at totalRounds instead of overshooting to
+    // totalRounds + 1 — nothing plays a round that doesn't exist, so
+    // "Runde 6 von 5" on the results screen was a pure display bug.
+    currentRound: isGameEnd ? session.totalRounds : nextRound,
+    phase: isGameEnd ? 'game-end' : 'seller-input',
     buyerQueue: shuffleArray(buyers.map(b => b.id)),
     currentBuyerIndex: 0,
     currentSellerDecisions: {},

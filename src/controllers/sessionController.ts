@@ -12,52 +12,52 @@ export function createSessionController(repo: SessionRepository) {
     },
 
     getState(req: Request, res: Response): void {
-      res.json(toPublic(req.session!))
+      res.json(toPublic(req.session!, req.viewer))
     },
 
     join(req: Request, res: Response): void {
       const { name, role, slotIndex } = req.body
       const { player, token } = service.joinSession(repo, req.session!, name, role, slotIndex)
-      res.json({ playerToken: token, playerId: player.id, session: toPublic(req.session!) })
+      res.json({ playerToken: token, playerId: player.id, session: toPublic(req.session!, req.viewer) })
     },
 
     start(req: Request, res: Response): void {
-      res.json(toPublic(service.startGame(repo, req.session!)))
+      res.json(toPublic(service.startGame(repo, req.session!), req.viewer))
     },
 
     config(req: Request, res: Response): void {
       const { maxSellerUnits, totalRounds } = req.body
-      res.json(toPublic(service.updateConfig(repo, req.session!, maxSellerUnits, totalRounds)))
+      res.json(toPublic(service.updateConfig(repo, req.session!, maxSellerUnits, totalRounds), req.viewer))
     },
 
     sellerDecision(req: Request, res: Response): void {
       const { grade, price, unitsOffered } = req.body
-      res.json(toPublic(service.submitSellerDecision(repo, req.session!, req.player!.id, grade, price, unitsOffered)))
+      res.json(toPublic(service.submitSellerDecision(repo, req.session!, req.player!.id, grade, price, unitsOffered), req.viewer))
     },
 
     buyerDecision(req: Request, res: Response): void {
       const { sellerId } = req.body
-      res.json(toPublic(service.submitBuyerDecision(repo, req.session!, req.player!.id, sellerId)))
+      res.json(toPublic(service.submitBuyerDecision(repo, req.session!, req.player!.id, sellerId), req.viewer))
     },
 
     toggleInfoMode(req: Request, res: Response): void {
-      res.json(toPublic(service.toggleInfoMode(repo, req.session!)))
+      res.json(toPublic(service.toggleInfoMode(repo, req.session!), req.viewer))
     },
 
     nextRound(req: Request, res: Response): void {
-      res.json(toPublic(service.advanceToNextRound(repo, req.session!)))
+      res.json(toPublic(service.advanceToNextRound(repo, req.session!), req.viewer))
     },
 
     kick(req: Request, res: Response): void {
-      res.json(toPublic(service.kickPlayer(repo, req.session!, req.params.playerId)))
+      res.json(toPublic(service.kickPlayer(repo, req.session!, req.params.playerId), req.viewer))
     },
 
     skipBuyer(req: Request, res: Response): void {
-      res.json(toPublic(service.skipCurrentBuyer(repo, req.session!)))
+      res.json(toPublic(service.skipCurrentBuyer(repo, req.session!), req.viewer))
     },
 
     forceAdvance(req: Request, res: Response): void {
-      res.json(toPublic(service.forceAdvanceFromSellerInput(repo, req.session!)))
+      res.json(toPublic(service.forceAdvanceFromSellerInput(repo, req.session!), req.viewer))
     },
   }
 }

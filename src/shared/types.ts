@@ -97,6 +97,8 @@ export interface PublicSession extends Omit<Session, 'adminToken' | 'players'> {
   limits: {
     maxSellerUnits: number
     maxRounds: number
+    maxSellers: number
+    maxBuyers: number
   }
   currentRoundMetrics: RoundMetrics | null
 }

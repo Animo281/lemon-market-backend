@@ -131,30 +131,42 @@ Admin-only overrides, unrestricted by phase:
 
 ## Configuration & Limits
 
-| Setting          | Default | Hard limit (`shared/constants.ts`) |
-|-------------------|---------|--------------------------------------|
-| `numSellers`      | 3       | —                                     |
-| `numBuyers`       | 4       | —                                     |
-| `maxSellerUnits`  | 2       | `MAX_SELLER_UNITS_LIMIT` = 5          |
-| `totalRounds`     | 5       | `MAX_ROUNDS_LIMIT` = 20               |
+| Setting          | Default | Hard limit (`shared/constants.ts`)   |
+|-------------------|---------|----------------------------------------|
+| `numSellers`      | 3       | `MAX_SELLERS_LIMIT` = 10               |
+| `numBuyers`       | 4       | `MAX_BUYERS_LIMIT` = 20                |
+| `maxSellerUnits`  | 2       | `MAX_SELLER_UNITS_LIMIT` = 5            |
+| `totalRounds`     | 5       | `MAX_ROUNDS_LIMIT` = 20                 |
 
-Hard limits are enforced in the Zod schemas (`src/schemas/session.ts`) and echoed back to clients as `limits` on every session response. A seller's `unitsOffered` is additionally clamped server-side to `[1, maxSellerUnits]` regardless of what's submitted. Config (`PATCH /config`) only works while the session is in `lobby`.
+Hard limits are enforced in the Zod schemas (`src/schemas/session.ts`) and echoed back to clients as `limits` on every session response. `numSellers`/`numBuyers` are capped so a bogus value (`numBuyers: 1e9`) can't reach the `Array(n)` allocation in the demand-curve calculation and crash or exhaust memory — it's rejected as a normal 400 instead. A seller's `unitsOffered` is additionally clamped server-side to `[1, maxSellerUnits]` regardless of what's submitted. Config (`PATCH /config`) only works while the session is in `lobby`.
 
 ## Error Format
 
-- **Domain errors** (`HttpError`, thrown by services): `{ "error": "<message>" }` with the matching status — 400 (bad input/wrong phase), 403 (auth), 404 (not found), or 409 (conflict, e.g. slot taken).
-- **Validation errors** (Zod, via the `validate` middleware): always 400, `{ "error": "Validation failed", "issues": [...] }` with the raw Zod issue list.
-- **Unexpected errors**: 500 `{ "error": "Internal server error" }`; the original error is logged server-side, never leaked to the client.
+All error messages are German (the product's UI language) and are safe to show to the end user as-is.
+
+- **Domain errors** (`HttpError`, thrown by services): `{ "error": "<message>" }` with the matching status — 400 (bad input/wrong phase), 403 (auth), 404 (not found), or 409 (conflict, e.g. slot taken). Example: `{ "error": "Bei diesem Stand ist alles verkauft." }`.
+- **Validation errors** (Zod, via the `validate` middleware): always 400, `{ "error": "Eingabe ungültig — bitte Werte prüfen.", "issues": [...] }` with the raw Zod issue list.
+- **Malformed JSON / oversized body**: 400 `{ "error": "Ungültige Anfrage — Anfrage-Format prüfen." }` — `express.json()`'s `SyntaxError`/`PayloadTooLargeError` are recognized in `errorHandler` instead of falling through to a generic 500.
+- **Unknown route or method**: 404 `{ "error": "Nicht gefunden." }` (`notFoundHandler`, mounted after the router) — kept in the same JSON shape as every other error instead of Express's default HTML page.
+- **Unexpected errors**: 500 `{ "error": "Interner Serverfehler." }`; the original error is logged server-side, never leaked to the client.
+
+## Viewer-aware responses (hidden grade in asymmetric mode)
+
+`GET /:code` and every mutating route run a non-throwing `resolveViewer` middleware (`src/middleware/sessionMiddleware.ts`) that inspects `x-token` and classifies the caller as `admin`, a specific `player`, or `anonymous` — without requiring the header. `toPublic()` (`src/mappers/toPublic.ts`) uses that to decide what `currentSellerDecisions[].grade` shows: the raw grade only reaches the admin and the seller who set it. Everyone else sees it masked to `undefined` whenever `infoMode === 'asymmetric'` — matching the masking `computeAvailableOffers` already did for `availableOffers`, but now applied to the full session payload too. Clients that want their own grade reflected back (a seller viewing their own board) must send their `x-token` on `GET /:code`, not just on mutating calls.
 
 ## Persistence
 
 `createMemoryRepository()` (`src/repositories/sessionRepository.ts`) is a plain in-memory `Map` — no database, no TTL, no cleanup job. Restarting the process discards every session, and it does not support running more than one backend instance behind a load balancer.
 
-Session codes are 4-character uppercase alphanumeric, generated with up to 20 collision-retry attempts before failing with a 500. Code lookup is case-insensitive (`getByCode` uppercases before matching).
+Session codes are 4 characters drawn uniformly from `A-Z0-9`, generated with up to 20 collision-retry attempts before failing with a 500. Code lookup is case-insensitive (`getByCode` uppercases before matching).
 
 ## Known Limitations
 
 - No reconnect mechanism — clients are responsible for persisting their own `playerToken`/`adminToken` across page reloads.
+- Buyer turn order (`buyerQueue`/`currentPlayerId`) is computed and exposed, but not enforced — any buyer can act at any time during `market`, not just the one whose turn it visually is. Enforcing it would need either accepting jerkier UX over 2s polling or a push channel; left as a deliberate simplification for now.
+- `theoreticalMaxSurplus` and the demand curve use the session's *configured* `numBuyers`, not the number who actually joined — a session that starts under-filled reports a lower efficiency than it should.
+- No rate limiting, no `helmet`, fully open CORS — acceptable for a single-instance classroom tool, not for a public deployment.
+- Toggling info mode while still in `lobby` has no effect: `startGame` always resets `infoMode` to `'full'` (rounds 1–3 are always full-info by design). The toggle isn't blocked in the lobby, so it can look like it did something when it didn't.
 
 ## Tests
 
@@ -163,8 +175,8 @@ npm test            # vitest run (all files in tests/)
 npm run test:watch  # watch mode
 ```
 
-69 tests across 4 files:
+86 tests across 4 files:
 - `gameAnalytics.test.ts` (24) — equilibrium, WTP, `theoreticalMaxSurplus`, round metrics
 - `sessionService.test.ts` (19) — state-machine transition tests
-- `routes.session.test.ts` (17) — integration tests via supertest
+- `routes.session.test.ts` (34) — integration tests via supertest, incl. the prototype-pollution guard, asymmetric-mode grade masking, oversized/malformed input, and the JSON 404
 - `gameLogic.test.ts` (9) — shuffle, earnings, round computation unit tests

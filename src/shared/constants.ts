@@ -19,4 +19,15 @@ export const DEFAULT_MAX_SELLER_UNITS = 2
 export const MAX_SELLER_UNITS_LIMIT = 5
 export const MAX_ROUNDS_LIMIT = 20
 
-export const LIMITS = Object.freeze({ maxSellerUnits: MAX_SELLER_UNITS_LIMIT, maxRounds: MAX_ROUNDS_LIMIT })
+// Classroom-sized upper bounds on session.create — without these, a huge
+// numBuyers/numSellers reaches an Array(n) allocation in gameAnalytics
+// (demand curve) and either crashes with a RangeError or exhausts memory.
+export const MAX_SELLERS_LIMIT = 10
+export const MAX_BUYERS_LIMIT = 20
+
+export const LIMITS = Object.freeze({
+  maxSellerUnits: MAX_SELLER_UNITS_LIMIT,
+  maxRounds: MAX_ROUNDS_LIMIT,
+  maxSellers: MAX_SELLERS_LIMIT,
+  maxBuyers: MAX_BUYERS_LIMIT,
+})
