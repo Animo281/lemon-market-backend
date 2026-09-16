@@ -70,6 +70,8 @@ export const openApiSpec = {
             properties: {
               maxSellerUnits: { type: 'integer' },
               maxRounds: { type: 'integer' },
+              maxSellers: { type: 'integer' },
+              maxBuyers: { type: 'integer' },
             },
           },
           currentRoundMetrics: { $ref: '#/components/schemas/RoundMetrics', nullable: true },

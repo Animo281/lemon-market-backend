@@ -24,16 +24,22 @@ function checkPhaseTransition(session: Session): void {
   }
 }
 
+// Math.random().toString(36) always starts with "0." — uppercasing and
+// stripping the dot used to leave a leading "0" on every code, cutting the
+// effective keyspace from 36^4 to 36^3. Draw uniformly from the alphabet
+// instead.
+const CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
 function generateCode(): string {
-  return Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)
+  return Array.from({ length: 4 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('')
 }
 
 function createUniqueCode(repo: SessionRepository): string {
   for (let i = 0; i < 20; i++) {
     const code = generateCode()
-    if (code.length === 4 && !repo.getByCode(code)) return code
+    if (!repo.getByCode(code)) return code
   }
-  throw new HttpError(500, 'Could not generate unique session code')
+  throw new HttpError(500, 'Konnte keinen eindeutigen Session-Code erzeugen — bitte erneut versuchen.')
 }
 
 export function createSession(
@@ -72,12 +78,12 @@ export function joinSession(
   role: Role,
   slotIndex: number,
 ): { player: Player; token: string } {
-  if (session.phase !== 'lobby') throw new HttpError(400, 'Session already started')
+  if (session.phase !== 'lobby') throw new HttpError(400, 'Die Session hat bereits begonnen — Beitritt nicht mehr möglich.')
 
   const maxSlot = role === 'seller' ? session.numSellers : session.numBuyers
-  if (slotIndex < 0 || slotIndex >= maxSlot) throw new HttpError(400, 'Invalid slotIndex')
+  if (slotIndex < 0 || slotIndex >= maxSlot) throw new HttpError(400, 'Ungültiger Platz.')
   if (session.players.some(p => p.role === role && p.slotIndex === slotIndex)) {
-    throw new HttpError(409, 'Slot already taken')
+    throw new HttpError(409, 'Dieser Platz ist schon vergeben.')
   }
 
   const token = uuid()
@@ -93,7 +99,7 @@ export function updateConfig(
   maxSellerUnits?: number,
   totalRounds?: number,
 ): Session {
-  if (session.phase !== 'lobby') throw new HttpError(400, 'Config locked after start')
+  if (session.phase !== 'lobby') throw new HttpError(400, 'Einstellungen sind nach Spielstart gesperrt.')
   if (maxSellerUnits !== undefined) session.maxSellerUnits = maxSellerUnits
   if (totalRounds !== undefined) session.totalRounds = totalRounds
   repo.save(session)
@@ -101,11 +107,11 @@ export function updateConfig(
 }
 
 export function startGame(repo: SessionRepository, session: Session): Session {
-  if (session.phase !== 'lobby') throw new HttpError(400, 'Already started')
+  if (session.phase !== 'lobby') throw new HttpError(400, 'Das Spiel läuft bereits.')
   const sellers = session.players.filter(p => p.role === 'seller')
   const buyers = session.players.filter(p => p.role === 'buyer')
   if (sellers.length === 0 || buyers.length === 0) {
-    throw new HttpError(400, 'Need at least 1 seller and 1 buyer')
+    throw new HttpError(400, 'Mindestens 1 Verkäufer und 1 Käufer nötig, bevor das Spiel startet.')
   }
   session.phase = 'seller-input'
   session.currentRound = 1
@@ -126,7 +132,7 @@ export function submitSellerDecision(
   price: number,
   unitsOffered?: number,
 ): Session {
-  if (session.phase !== 'seller-input') throw new HttpError(400, 'Wrong phase')
+  if (session.phase !== 'seller-input') throw new HttpError(400, 'Die Verkaufsphase ist vorbei — deine Entscheidung kommt jetzt zu spät.')
 
   const offered = Math.min(session.maxSellerUnits, Math.max(1, unitsOffered ?? session.maxSellerUnits))
   session.currentSellerDecisions[playerId] = { playerId, grade, price, unitsOffered: offered, unitsSold: 0, confirmed: false }
@@ -143,18 +149,25 @@ export function submitBuyerDecision(
   playerId: string,
   sellerId: string | null,
 ): Session {
-  if (session.phase !== 'market') throw new HttpError(400, 'Wrong phase')
-  if (session.currentBuyerDecisions[playerId]) throw new HttpError(400, 'Already submitted')
+  if (session.phase !== 'market') throw new HttpError(400, 'Der Markt ist gerade nicht offen.')
+  if (session.currentBuyerDecisions[playerId]) throw new HttpError(400, 'Du hast in dieser Runde schon entschieden.')
 
   let grade = null
   let price = null
   let earnings = 0
 
   if (sellerId !== null) {
+    // sellerId comes straight from the request body (schema only checks
+    // "is a string"). Looking it up against a plain object keyed by id
+    // (currentSellerDecisions) before confirming it's an actual seller would
+    // let "__proto__"/"constructor" reach into Object.prototype — so a real
+    // player match comes first, and only then the decisions lookup.
+    const seller = session.players.find(p => p.id === sellerId && p.role === 'seller')
+    if (!seller) throw new HttpError(400, 'Unbekannter Verkäufer.')
     const sd = session.currentSellerDecisions[sellerId]
-    if (!sd) throw new HttpError(400, 'Seller has no decision')
+    if (!sd) throw new HttpError(400, `${seller.name} hat noch kein Angebot abgegeben.`)
     const maxUnits = sd.unitsOffered ?? session.maxSellerUnits
-    if ((sd.unitsSold ?? 0) >= maxUnits) throw new HttpError(400, 'Seller sold out')
+    if ((sd.unitsSold ?? 0) >= maxUnits) throw new HttpError(400, 'Bei diesem Stand ist alles verkauft.')
     grade = sd.grade ?? null
     price = sd.price ?? null
     earnings = calculateBuyerEarnings(grade, price)
@@ -176,15 +189,26 @@ export function toggleInfoMode(repo: SessionRepository, session: Session): Sessi
 }
 
 export function advanceToNextRound(repo: SessionRepository, session: Session): Session {
-  if (session.phase !== 'round-end') throw new HttpError(400, 'Wrong phase')
+  if (session.phase !== 'round-end') throw new HttpError(400, 'Diese Runde ist noch nicht beendet.')
   Object.assign(session, advanceRound(session))
   repo.save(session)
   return session
 }
 
 export function kickPlayer(repo: SessionRepository, session: Session, playerId: string): Session {
-  const exists = session.players.some(p => p.id === playerId)
-  if (!exists) throw new HttpError(404, 'Player not found')
+  const player = session.players.find(p => p.id === playerId)
+  if (!player) throw new HttpError(404, 'Spieler nicht gefunden.')
+
+  // A buyer who already bought from a seller this round leaves that seller's
+  // unitsSold pointing at a sale that no longer exists — decrement it so the
+  // unit becomes available again instead of being permanently phantom-sold.
+  if (player.role === 'buyer') {
+    const decision = session.currentBuyerDecisions[playerId]
+    if (decision?.sellerId) {
+      const sd = session.currentSellerDecisions[decision.sellerId]
+      if (sd && (sd.unitsSold ?? 0) > 0) sd.unitsSold = (sd.unitsSold ?? 0) - 1
+    }
+  }
 
   session.players = session.players.filter(p => p.id !== playerId)
   session.buyerQueue = session.buyerQueue.filter(id => id !== playerId)
@@ -197,11 +221,11 @@ export function kickPlayer(repo: SessionRepository, session: Session, playerId: 
 }
 
 export function skipCurrentBuyer(repo: SessionRepository, session: Session): Session {
-  if (session.phase !== 'market') throw new HttpError(400, 'Wrong phase')
+  if (session.phase !== 'market') throw new HttpError(400, 'Der Markt ist gerade nicht offen.')
 
   const currentPlayerId = session.buyerQueue[session.currentBuyerIndex] ?? null
-  if (!currentPlayerId) throw new HttpError(400, 'No current buyer')
-  if (session.currentBuyerDecisions[currentPlayerId]) throw new HttpError(400, 'Current buyer already submitted')
+  if (!currentPlayerId) throw new HttpError(400, 'Kein Käufer ist gerade an der Reihe.')
+  if (session.currentBuyerDecisions[currentPlayerId]) throw new HttpError(400, 'Dieser Käufer hat bereits entschieden.')
 
   session.currentBuyerDecisions[currentPlayerId] = {
     playerId: currentPlayerId,
@@ -217,7 +241,7 @@ export function skipCurrentBuyer(repo: SessionRepository, session: Session): Ses
 }
 
 export function forceAdvanceFromSellerInput(repo: SessionRepository, session: Session): Session {
-  if (session.phase !== 'seller-input') throw new HttpError(400, 'Wrong phase')
+  if (session.phase !== 'seller-input') throw new HttpError(400, 'Die Verkaufsphase läuft gerade nicht.')
 
   const sellers = session.players.filter(p => p.role === 'seller')
   for (const seller of sellers) {

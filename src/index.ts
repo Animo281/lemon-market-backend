@@ -3,7 +3,7 @@ import cors from 'cors'
 import swaggerUi from 'swagger-ui-express'
 import { createMemoryRepository } from './repositories/sessionRepository'
 import { createSessionRouter } from './routes/session'
-import { errorHandler } from './middleware/errorHandler'
+import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 import { openApiSpec } from './docs/openapi'
 
 const repo = createMemoryRepository()
@@ -15,6 +15,7 @@ app.use('/api/session', createSessionRouter(repo))
 
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec))
 
+app.use(notFoundHandler)
 app.use(errorHandler)
 
 const PORT = Number(process.env.PORT) || 3001

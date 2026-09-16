@@ -1,9 +1,12 @@
 import { z } from 'zod'
-import { MAX_SELLER_UNITS_LIMIT, MAX_ROUNDS_LIMIT, DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS } from '../shared/constants'
+import {
+  MAX_SELLER_UNITS_LIMIT, MAX_ROUNDS_LIMIT, DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS,
+  MAX_SELLERS_LIMIT, MAX_BUYERS_LIMIT,
+} from '../shared/constants'
 
 export const createSessionSchema = z.object({
-  numSellers: z.number().int().min(1).default(3),
-  numBuyers: z.number().int().min(1).default(4),
+  numSellers: z.number().int().min(1).max(MAX_SELLERS_LIMIT).default(3),
+  numBuyers: z.number().int().min(1).max(MAX_BUYERS_LIMIT).default(4),
   maxSellerUnits: z.number().int().min(1).max(MAX_SELLER_UNITS_LIMIT).default(DEFAULT_MAX_SELLER_UNITS),
   totalRounds: z.number().int().min(1).max(MAX_ROUNDS_LIMIT).default(DEFAULT_TOTAL_ROUNDS),
 })
