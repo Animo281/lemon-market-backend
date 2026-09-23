@@ -471,3 +471,48 @@ describe('Security: buyer shopping order is enforced, not just displayed', () =>
     expect(accepted.body.currentPlayerId).toBe(otherId)
   })
 })
+
+describe('Gegenprobe: Holt & Sherman (1999) default setup converges to their own numbers', () => {
+  it('3 sellers / 4 buyers / 2 units, all pricing grade 2 at 5.60 €, hits theoreticalMaxSurplus and ~100% efficiency', async () => {
+    // Paper Table 1 (full-info periods): grade-2 price converges to $5.60 —
+    // the seller's own 2nd-unit cost — and the paper calls grade 2 the
+    // surplus-maximizing quality. Buying round-robin across all 3 sellers
+    // before any seller's 2nd unit (S1,S2,S3 first units, then S1's second)
+    // is the allocation theoreticalMaxSurplus assumes; per-buyer identity
+    // doesn't matter since buyer values are homogeneous.
+    const { body: { code, adminToken } } = await request(app).post('/api/session').send({})
+    const sellers: Array<{ token: string; id: string }> = []
+    for (let i = 0; i < 3; i++) {
+      const { body: { playerToken, playerId } } = await request(app)
+        .post(`/api/session/${code}/join`).send({ name: `S${i}`, role: 'seller', slotIndex: i })
+      sellers.push({ token: playerToken, id: playerId })
+    }
+    const buyerTokenById: Record<string, string> = {}
+    for (let i = 0; i < 4; i++) {
+      const { body: { playerToken, playerId } } = await request(app)
+        .post(`/api/session/${code}/join`).send({ name: `B${i}`, role: 'buyer', slotIndex: i })
+      buyerTokenById[playerId] = playerToken
+    }
+    await request(app).post(`/api/session/${code}/start`).set('x-token', adminToken)
+    for (const s of sellers) {
+      await request(app).post(`/api/session/${code}/seller-decision`)
+        .set('x-token', s.token).send({ grade: 2, price: 5.60 })
+    }
+
+    const targetSellerForPurchase = [sellers[0].id, sellers[1].id, sellers[2].id, sellers[0].id]
+    for (const sellerId of targetSellerForPurchase) {
+      const state = await request(app).get(`/api/session/${code}`).set('x-token', adminToken)
+      const currentToken = buyerTokenById[state.body.currentPlayerId as string]
+      const res = await request(app).post(`/api/session/${code}/buyer-decision`)
+        .set('x-token', currentToken).send({ sellerId })
+      expect(res.status).toBe(200)
+    }
+
+    const final = await request(app).get(`/api/session/${code}`).set('x-token', adminToken)
+    expect(final.body.phase).toBe('round-end')
+    const metrics = final.body.results[0].metrics
+    expect(metrics.theoreticalMaxSurplus).toBeCloseTo(15.8)
+    expect(metrics.efficiency).toBeCloseTo(1.0, 2)
+    expect(final.body.results[0].totalSurplus).toBeCloseTo(15.8)
+  })
+})

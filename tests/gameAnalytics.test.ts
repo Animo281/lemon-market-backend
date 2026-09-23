@@ -121,6 +121,17 @@ describe('theoreticalMaxSurplus', () => {
     // 1 seller, 1 unit, 1 buyer: grade3 surplus = 30 - 11 = 19, dwarfs grade1/2.
     expect(theoreticalMaxSurplus(shifted, 1, 1, 1)).toBeCloseTo(19)
   })
+
+  it('matches the paper\'s own numbers for its own default setup (3 sellers, 4 buyers, 2 units)', () => {
+    // Holt & Sherman (1999) run their worked example at exactly these
+    // defaults (schemas/session.ts) and report grade 2 as the surplus-
+    // maximizing quality. 4 units clear (3*2 capacity >= 4 buyers): 3 of
+    // them are some seller's 1st unit, the 4th is a 2nd unit.
+    // grade1: 3*(4.0-1.4) + (4.0-2.4) = 7.8 + 1.6 = 9.4
+    // grade2: 3*(8.8-4.6) + (8.8-5.6) = 12.6 + 3.2 = 15.8  ← matches the paper
+    // grade3: 3*(13.6-11.0) + (13.6-12.0) = 7.8 + 1.6 = 9.4
+    expect(theoreticalMaxSurplus(DEFAULT_ECONOMICS, 3, 2, 4)).toBeCloseTo(15.8)
+  })
 })
 
 describe('computeSellerEarnings', () => {
