@@ -329,3 +329,145 @@ describe('Kick a buyer who already bought', () => {
     expect(after.body.currentSellerDecisions[sellerId].unitsSold).toBe(0)
   })
 })
+
+describe('Security: buyer grade/earnings hidden in asymmetric mode — even from the buyer who bought', () => {
+  it('masks grade + earnings in currentBuyerDecisions while the market is open, unmasks at round-end', async () => {
+    // 2 buyers, so the market phase is still 'open' after the first buyer's
+    // purchase — a lone buyer would immediately flip the round to 'round-end',
+    // where masking correctly stops applying (that's the reveal moment).
+    const { body: { code, adminToken } } = await request(app)
+      .post('/api/session').send({ numSellers: 1, numBuyers: 2 })
+    const { body: { playerToken: sellerToken, playerId: sellerId } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'S', role: 'seller', slotIndex: 0 })
+    const { body: { playerToken: b1Token, playerId: b1Id } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'B1', role: 'buyer', slotIndex: 0 })
+    const { body: { playerToken: b2Token } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'B2', role: 'buyer', slotIndex: 1 })
+    await request(app).post(`/api/session/${code}/start`).set('x-token', adminToken)
+    await request(app).post(`/api/session/${code}/toggle-info-mode`).set('x-token', adminToken)
+    await request(app).post(`/api/session/${code}/seller-decision`)
+      .set('x-token', sellerToken).send({ grade: 3, price: 12.0 })
+
+    const state = await request(app).get(`/api/session/${code}`).set('x-token', adminToken)
+    const currentId = state.body.currentPlayerId as string
+    const [buyerToken, buyerId] = currentId === b1Id ? [b1Token, b1Id] : [b2Token, currentId]
+    await request(app).post(`/api/session/${code}/buyer-decision`)
+      .set('x-token', buyerToken).send({ sellerId })
+
+    // Still 'market' — the buyer who just bought must not see grade/earnings
+    // in their own decision either, and the other buyer hasn't gone yet.
+    const asBuyer = await request(app).get(`/api/session/${code}`).set('x-token', buyerToken)
+    expect(asBuyer.body.phase).toBe('market')
+    expect(asBuyer.body.currentBuyerDecisions[buyerId].grade).toBeNull()
+    expect(asBuyer.body.currentBuyerDecisions[buyerId].earnings).toBe(0)
+    expect(asBuyer.body.currentRoundMetrics).toBeNull()
+
+    const anonymous = await request(app).get(`/api/session/${code}`)
+    expect(anonymous.body.currentBuyerDecisions[buyerId].grade).toBeNull()
+
+    const asAdmin = await request(app).get(`/api/session/${code}`).set('x-token', adminToken)
+    expect(asAdmin.body.currentBuyerDecisions[buyerId].grade).toBe(3)
+    expect(asAdmin.body.currentBuyerDecisions[buyerId].earnings).toBeCloseTo(1.6)
+    expect(asAdmin.body.currentRoundMetrics).not.toBeNull()
+
+    // Round-end is the paper's "tafel aufgedeckt" moment — results[] stays
+    // unmasked. Skip the second buyer to close out the round.
+    await request(app).post(`/api/session/${code}/skip-buyer`).set('x-token', adminToken)
+    const roundEnd = await request(app).get(`/api/session/${code}`).set('x-token', b2Token)
+    expect(roundEnd.body.phase).toBe('round-end')
+    const finishedBuyerDecision = roundEnd.body.results[0].buyerDecisions.find((bd: { playerId: string }) => bd.playerId === buyerId)
+    expect(finishedBuyerDecision.grade).toBe(3)
+    expect(finishedBuyerDecision.earnings).toBeCloseTo(1.6)
+  })
+})
+
+describe('Security: economics tables split by role', () => {
+  it('buyer sees only buyerValues, seller only sellerFirstCosts, admin sees both', async () => {
+    const { body: { code, adminToken } } = await request(app)
+      .post('/api/session').send({ numSellers: 1, numBuyers: 1 })
+    const { body: { playerToken: sellerToken } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'S', role: 'seller', slotIndex: 0 })
+    const { body: { playerToken: buyerToken } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'B', role: 'buyer', slotIndex: 0 })
+
+    const asBuyer = await request(app).get(`/api/session/${code}`).set('x-token', buyerToken)
+    expect(asBuyer.body.economics.buyerValues).toEqual({ 1: 4.0, 2: 8.8, 3: 13.6 })
+    expect(asBuyer.body.economics.sellerFirstCosts).toBeUndefined()
+
+    const asSeller = await request(app).get(`/api/session/${code}`).set('x-token', sellerToken)
+    expect(asSeller.body.economics.sellerFirstCosts).toEqual({ 1: 1.4, 2: 4.6, 3: 11.0 })
+    expect(asSeller.body.economics.buyerValues).toBeUndefined()
+
+    const asAdmin = await request(app).get(`/api/session/${code}`).set('x-token', adminToken)
+    expect(asAdmin.body.economics.buyerValues).toEqual({ 1: 4.0, 2: 8.8, 3: 13.6 })
+    expect(asAdmin.body.economics.sellerFirstCosts).toEqual({ 1: 1.4, 2: 4.6, 3: 11.0 })
+
+    const anonymous = await request(app).get(`/api/session/${code}`)
+    expect(anonymous.body.economics).toEqual({})
+  })
+})
+
+describe('Host-configurable economics', () => {
+  it('a session created with custom values uses them in payoffs, not the Holt & Sherman defaults', async () => {
+    const { body: { code, adminToken } } = await request(app).post('/api/session').send({
+      numSellers: 1, numBuyers: 1,
+      economics: {
+        buyerValues: { 1: 10, 2: 20, 3: 30 },
+        sellerFirstCosts: { 1: 2, 2: 5, 3: 9 },
+      },
+    })
+    const { body: { playerToken: sellerToken, playerId: sellerId } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'S', role: 'seller', slotIndex: 0 })
+    const { body: { playerToken: buyerToken } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'B', role: 'buyer', slotIndex: 0 })
+    await request(app).post(`/api/session/${code}/start`).set('x-token', adminToken)
+    await request(app).post(`/api/session/${code}/seller-decision`)
+      .set('x-token', sellerToken).send({ grade: 2, price: 15 })
+    const res = await request(app).post(`/api/session/${code}/buyer-decision`)
+      .set('x-token', buyerToken).send({ sellerId })
+
+    // 20 (custom Q2 value) - 15 (price) = 5, not the Holt default's 8.8 - 15.
+    expect(res.body.currentBuyerDecisions[Object.keys(res.body.currentBuyerDecisions)[0]].earnings).toBeCloseTo(5)
+  })
+
+  it('rejects a non-monotonic economics table (Q2 cheaper than Q1)', async () => {
+    const res = await request(app).post('/api/session').send({
+      numSellers: 1, numBuyers: 1,
+      economics: {
+        buyerValues: { 1: 4.0, 2: 8.8, 3: 13.6 },
+        sellerFirstCosts: { 1: 5.0, 2: 4.0, 3: 11.0 },
+      },
+    })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('Security: buyer shopping order is enforced, not just displayed', () => {
+  it('rejects a buyer-decision from someone other than currentPlayerId', async () => {
+    const { body: { code, adminToken } } = await request(app)
+      .post('/api/session').send({ numSellers: 1, numBuyers: 2 })
+    const { body: { playerToken: sellerToken, playerId: sellerId } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'S', role: 'seller', slotIndex: 0 })
+    const { body: { playerToken: b1Token, playerId: b1Id } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'B1', role: 'buyer', slotIndex: 0 })
+    const { body: { playerToken: b2Token, playerId: b2Id } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'B2', role: 'buyer', slotIndex: 1 })
+    await request(app).post(`/api/session/${code}/start`).set('x-token', adminToken)
+    await request(app).post(`/api/session/${code}/seller-decision`)
+      .set('x-token', sellerToken).send({ grade: 2, price: 6.0 })
+
+    const state = await request(app).get(`/api/session/${code}`).set('x-token', adminToken)
+    const currentId = state.body.currentPlayerId as string
+    const [outOfTurnToken, inTurnToken] = currentId === b1Id ? [b2Token, b1Token] : [b1Token, b2Token]
+    const otherId = currentId === b1Id ? b2Id : b1Id
+
+    const rejected = await request(app).post(`/api/session/${code}/buyer-decision`)
+      .set('x-token', outOfTurnToken).send({ sellerId })
+    expect(rejected.status).toBe(400)
+
+    const accepted = await request(app).post(`/api/session/${code}/buyer-decision`)
+      .set('x-token', inTurnToken).send({ sellerId })
+    expect(accepted.status).toBe(200)
+    expect(accepted.body.currentPlayerId).toBe(otherId)
+  })
+})

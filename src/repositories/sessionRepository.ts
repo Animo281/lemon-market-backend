@@ -6,9 +6,14 @@ export interface SessionRepository {
   save(session: Session): void
 }
 
-export function createMemoryRepository(): SessionRepository {
+export function createMemoryRepository(initialSessions: Session[] = []): SessionRepository {
   const sessions = new Map<string, Session>()
   const codeToId = new Map<string, string>()
+
+  for (const session of initialSessions) {
+    sessions.set(session.id, session)
+    codeToId.set(session.code.toUpperCase(), session.id)
+  }
 
   return {
     getById: (id) => sessions.get(id),

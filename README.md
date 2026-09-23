@@ -10,6 +10,8 @@ npm run dev      # development with hot reload → http://localhost:3001
 npm run build    # compile to dist/
 npm start        # production (requires build)
 npm test         # run test suite
+npm run test:worker      # Workers runtime + Durable Object integration tests
+npm run deploy:dry-run   # validate the Cloudflare bundle without deploying
 ```
 
 Environment variable: `PORT` (default 3001).
@@ -21,6 +23,28 @@ Swagger UI: **http://localhost:3001/api/docs**
 The spec lives in `src/docs/openapi.ts` as a plain object — no `swagger-jsdoc` annotation scanning, it's handed straight to `swagger-ui-express`.
 
 Available schemas in Swagger: `PublicSession`, `PublicPlayer`, `RoundResult`, `RoundMetrics`, `AvailableOffer`, `Error`.
+
+The Cloudflare Worker serves a lightweight documentation page at `/api/docs` and the
+same OpenAPI document at `/api/openapi.json`.
+
+## Cloudflare deployment
+
+`wrangler.jsonc` defines one Worker (`lemon-market-game`) with React static assets and
+one SQLite-backed `SessionDurableObject` per four-character session code. Only `/api/*`
+runs Worker code first; client-side routes use the Static Assets SPA fallback.
+
+```bash
+npm run build:frontend
+npm run build
+npm run typecheck:worker
+npm run test:all
+npm run deploy:dry-run
+npm run deploy
+```
+
+No production secrets are required. Wrangler keeps Cloudflare credentials in its local
+credential store; admin and player tokens are generated at runtime and stored only in
+the session Durable Object.
 
 ## Architecture
 
@@ -37,24 +61,35 @@ src/
 ├── mappers/          toPublic — strips adminToken + player.token before sending
 ├── lib/              Pure functions: gameLogic (shuffle, earnings, round computation)
 ├── docs/             openapi.ts — hand-written OpenAPI 3.0 spec for Swagger UI
-└── shared/           Types + constants (BUYER_VALUES, SELLER_COSTS, limits)
+└── shared/           Types + constants (DEFAULT_BUYER_VALUES, DEFAULT_SELLER_FIRST_COSTS, UNIT_COST_STEP, limits)
 ```
 
 ## Economics / Game Model
 
-The market has 3 quality grades. Buyer willingness-to-pay and seller cost both scale with grade (`src/shared/constants.ts`):
+The market has 3 quality grades. Buyer willingness-to-pay and seller cost both scale with
+grade, but — unlike earlier versions of this app — they are **not** hardcoded constants:
+each session stores its own `economics: { buyerValues, sellerFirstCosts }`
+(`src/shared/types.ts`), set at `POST /session` and editable via `PATCH /config` while
+still in `lobby`, same as `maxSellerUnits`/`totalRounds`. Omitting `economics` on create
+falls back to the Holt & Sherman (1999) paper's own numbers
+(`DEFAULT_ECONOMICS` in `src/shared/constants.ts`):
 
-| Grade | Buyer WTP (`BUYER_VALUES`) | Seller marginal cost, 1st unit (`SELLER_COSTS[grade].first`) |
+| Grade | Buyer WTP (`buyerValues`) | Seller marginal cost, 1st unit (`sellerFirstCosts`) |
 |-------|-----------------------------|----------------------------------------------------------------|
 | 1     | 4.0                          | 1.4                                                             |
 | 2     | 8.8                          | 4.6                                                             |
 | 3     | 13.6                         | 11.0                                                            |
 
-Each additional unit a seller offers costs +1.00 more: `sellerCost(grade, unitIndex) = SELLER_COSTS[grade].first + unitIndex * 1.00` (0-based index).
+Both tables are Zod-validated (`src/schemas/session.ts`) to be strictly increasing over
+grades 1→2→3 — a host can shift the numbers, but not invert which grade is "best".
 
-- **Buyer earnings** on a purchase: `BUYER_VALUES[grade] - price`, rounded to 2 decimals. A pass (`sellerId: null`) earns 0.
-- **Seller earnings**: sum of `price - sellerCost(grade, i)` over each unit actually sold.
-- **`theoreticalMaxSurplus`**: `numBuyers * (BUYER_VALUES[2] - sellerCost(2, 0))` = `numBuyers * 4.2` — the surplus if every buyer got a grade-2 lemon at the seller's marginal cost of the first unit.
+Each additional unit a seller offers costs +1.00 more, regardless of the session's
+economics — this is a fixed game rule, not a per-session parameter:
+`sellerCost(sellerFirstCosts, grade, unitIndex) = sellerFirstCosts[grade] + unitIndex * UNIT_COST_STEP` (0-based index, `UNIT_COST_STEP = 1.00`).
+
+- **Buyer earnings** on a purchase: `economics.buyerValues[grade] - price`, rounded to 2 decimals. A pass (`sellerId: null`) earns 0.
+- **Seller earnings**: sum of `price - sellerCost(economics.sellerFirstCosts, grade, i)` over each unit actually sold.
+- **`theoreticalMaxSurplus`**: searches all three grades and picks the best one — `Σ max(0, buyerValues[g] - sellerCost(sellerFirstCosts, g, ⌊i/numSellers⌋))` over `i = 0..min(numBuyers, numSellers*maxSellerUnits)-1`, capped at each unit's real marginal cost (a seller's 2nd/3rd unit is priced higher than their 1st). With host-configurable economics, grade 2 is no longer guaranteed to be optimal, so this can't just assume it the way the original Holt & Sherman classroom setup could.
 
 ### `infoMode` — what it actually changes
 
@@ -82,17 +117,17 @@ Computed live during `market`/`round-end` (`currentRoundMetrics`) and stored per
 `toPublic()` (`src/mappers/toPublic.ts`) takes the internal `Session` and:
 
 - **removes** `adminToken` and every player's `token` (never sent to clients)
-- **adds** `currentPlayerId` (whose turn it is in `market`, else `null`), `availableOffers`, `economics` (the `BUYER_VALUES`/`SELLER_COSTS` tables, so clients don't hardcode them), `limits`, and `currentRoundMetrics`
+- **adds** `currentPlayerId` (whose turn it is in `market`, else `null`), `availableOffers`, `economics` (the session's own `buyerValues`/`sellerFirstCosts`, viewer-masked — see below), `limits`, and `currentRoundMetrics`
 
 ## Routes
 
 | Method   | Path                              | Auth    | Description                                      |
 |----------|-----------------------------------|---------|--------------------------------------------------|
-| `POST`   | `/api/session`                    | public  | Create session → `{ code, adminToken, sessionId }` |
+| `POST`   | `/api/session`                    | public  | Create session (`numSellers`, `numBuyers`, `maxSellerUnits`, `totalRounds`, optional `economics`) → `{ code, adminToken, sessionId }` |
 | `GET`    | `/api/session/:code`              | public  | Get current session state                        |
 | `POST`   | `/api/session/:code/join`         | public  | Join as seller/buyer → `{ playerToken, playerId }` |
 | `POST`   | `/api/session/:code/start`        | admin   | Start game (lobby → seller-input)                |
-| `PATCH`  | `/api/session/:code/config`       | admin   | Update config while in lobby                     |
+| `PATCH`  | `/api/session/:code/config`       | admin   | Update config while in lobby (`maxSellerUnits`, `totalRounds`, `economics`) |
 | `POST`   | `/api/session/:code/seller-decision` | player (seller) | Submit grade + price + units          |
 | `POST`   | `/api/session/:code/buyer-decision`  | player (buyer)  | Buy from seller (or pass with `null`) |
 | `POST`   | `/api/session/:code/toggle-info-mode` | admin  | Switch info mode (full ↔ asymmetric), any phase |
@@ -119,7 +154,13 @@ lobby
                                      └─ game-end      (no rounds remaining)
 
 Admin-only overrides, unrestricted by phase:
-  POST /toggle-info-mode  — switch full ↔ asymmetric, works at any point
+  POST /toggle-info-mode  — switch full ↔ asymmetric, works at any point. There is no
+                            automatic switch after N rounds — every round starts back at
+                            'full' (`startGame`/`createSession` both default to it), and
+                            the host decides when to flip it, typically at a round-end
+                            screen. This is a deliberate product choice, not a gap: it
+                            lets the same lecturer demo the effect at a moment of their
+                            choosing instead of a fixed round count.
   DELETE /players/:id     — kick a player, works at any point including game-end
 ```
 
@@ -137,6 +178,7 @@ Admin-only overrides, unrestricted by phase:
 | `numBuyers`       | 4       | `MAX_BUYERS_LIMIT` = 20                |
 | `maxSellerUnits`  | 2       | `MAX_SELLER_UNITS_LIMIT` = 5            |
 | `totalRounds`     | 5       | `MAX_ROUNDS_LIMIT` = 20                 |
+| `economics`       | `DEFAULT_ECONOMICS` (Holt & Sherman values) | both tables > 0 and strictly increasing over grades 1→2→3 |
 
 Hard limits are enforced in the Zod schemas (`src/schemas/session.ts`) and echoed back to clients as `limits` on every session response. `numSellers`/`numBuyers` are capped so a bogus value (`numBuyers: 1e9`) can't reach the `Array(n)` allocation in the demand-curve calculation and crash or exhaust memory — it's rejected as a normal 400 instead. A seller's `unitsOffered` is additionally clamped server-side to `[1, maxSellerUnits]` regardless of what's submitted. Config (`PATCH /config`) only works while the session is in `lobby`.
 
@@ -152,7 +194,39 @@ All error messages are German (the product's UI language) and are safe to show t
 
 ## Viewer-aware responses (hidden grade in asymmetric mode)
 
-`GET /:code` and every mutating route run a non-throwing `resolveViewer` middleware (`src/middleware/sessionMiddleware.ts`) that inspects `x-token` and classifies the caller as `admin`, a specific `player`, or `anonymous` — without requiring the header. `toPublic()` (`src/mappers/toPublic.ts`) uses that to decide what `currentSellerDecisions[].grade` shows: the raw grade only reaches the admin and the seller who set it. Everyone else sees it masked to `undefined` whenever `infoMode === 'asymmetric'` — matching the masking `computeAvailableOffers` already did for `availableOffers`, but now applied to the full session payload too. Clients that want their own grade reflected back (a seller viewing their own board) must send their `x-token` on `GET /:code`, not just on mutating calls.
+`GET /:code` and every mutating route run a non-throwing `resolveViewer` middleware (`src/middleware/sessionMiddleware.ts`) that inspects `x-token` and classifies the caller as `admin`, a specific `player`, or `anonymous` — without requiring the header. `toPublic()` (`src/mappers/toPublic.ts`) uses that to decide what several fields show:
+
+- **`currentSellerDecisions[].grade`** — the raw grade only reaches the admin and the
+  seller who set it. Everyone else sees it masked to `undefined` whenever
+  `infoMode === 'asymmetric'` — matching the masking `computeAvailableOffers` already did
+  for `availableOffers`, but applied to the full session payload too.
+- **`currentBuyerDecisions[].grade`/`.earnings`** — masked to `null`/`0` for everyone
+  except the admin while the market is still open in `asymmetric` mode (`infoMode ===
+  'asymmetric' && phase === 'market'`) — **including for the buyer who made that exact
+  purchase**. `earnings = buyerValues[grade] - price` arithmetically reveals the grade
+  even with `grade` itself hidden, so both fields are stripped together. This mirrors the
+  paper's procedure: buyers don't learn what they bought until the round ends and the
+  instructor writes the grades on the board. `session.results[]` (past rounds) is never
+  masked — that's the reveal moment, matching Table 1 in the paper.
+- **`currentRoundMetrics`** — `null` for non-admins under the same hidden-market
+  condition, since `totalBuyerProfit` and `demandCurve` are themselves derived from
+  buyer earnings and would leak the same information a different way.
+- **`economics`** — split by role, mirroring the paper's own instructions ("do not
+  reveal the private information tables of sellers' costs and buyers' values"): a buyer
+  only ever gets `buyerValues`, a seller only `sellerFirstCosts`, admin gets both,
+  anonymous gets neither.
+
+Clients that want their own grade/earnings reflected back (a seller viewing their own board, a buyer after round-end) must send their `x-token` on `GET /:code`, not just on mutating calls.
+
+## Buyer shopping order
+
+Buyers are drawn into a shuffled `buyerQueue` at the start of each round and must act in
+that order — `POST /buyer-decision` from anyone other than `getCurrentPlayerId(session)`
+is rejected with 400 ("Du bist noch nicht an der Reihe."). This matches the paper's
+procedure (buyers drawn by lot, shopping one at a time so later buyers see which stands
+already sold out) and closes what used to be a free-for-all: any buyer could act at any
+moment during `market`. `POST /skip-buyer` (admin) remains the way to unblock a round
+when the current buyer has disconnected.
 
 ## Persistence
 
@@ -163,10 +237,12 @@ Session codes are 4 characters drawn uniformly from `A-Z0-9`, generated with up 
 ## Known Limitations
 
 - No reconnect mechanism — clients are responsible for persisting their own `playerToken`/`adminToken` across page reloads.
-- Buyer turn order (`buyerQueue`/`currentPlayerId`) is computed and exposed, but not enforced — any buyer can act at any time during `market`, not just the one whose turn it visually is. Enforcing it would need either accepting jerkier UX over 2s polling or a push channel; left as a deliberate simplification for now.
 - `theoreticalMaxSurplus` and the demand curve use the session's *configured* `numBuyers`, not the number who actually joined — a session that starts under-filled reports a lower efficiency than it should.
 - No rate limiting, no `helmet`, fully open CORS — acceptable for a single-instance classroom tool, not for a public deployment.
-- Toggling info mode while still in `lobby` has no effect: `startGame` always resets `infoMode` to `'full'` (rounds 1–3 are always full-info by design). The toggle isn't blocked in the lobby, so it can look like it did something when it didn't.
+- Toggling info mode while still in `lobby` has no effect: `startGame` always resets `infoMode` to `'full'`. The toggle isn't blocked in the lobby, so it can look like it did something when it didn't.
+- Buyer shopping order is now enforced server-side (see "Buyer shopping order" above), but
+  it's still 2-second polling underneath, not a push channel — a buyer whose turn just
+  started can wait up to ~2s to see the "Du bist dran" state flip.
 
 ## Tests
 
@@ -175,8 +251,8 @@ npm test            # vitest run (all files in tests/)
 npm run test:watch  # watch mode
 ```
 
-86 tests across 4 files:
-- `gameAnalytics.test.ts` (24) — equilibrium, WTP, `theoreticalMaxSurplus`, round metrics
-- `sessionService.test.ts` (19) — state-machine transition tests
-- `routes.session.test.ts` (34) — integration tests via supertest, incl. the prototype-pollution guard, asymmetric-mode grade masking, oversized/malformed input, and the JSON 404
-- `gameLogic.test.ts` (9) — shuffle, earnings, round computation unit tests
+94 tests across 4 files, plus 7 more via `npm run test:worker` (Durable Object integration):
+- `gameAnalytics.test.ts` (26) — equilibrium, WTP, `theoreticalMaxSurplus` (capacity- and grade-search-aware), round metrics
+- `sessionService.test.ts` (24) — state-machine transition tests, incl. buyer-turn-order enforcement
+- `routes.session.test.ts` (30) — integration tests via supertest, incl. the prototype-pollution guard, asymmetric-mode grade masking (both seller- and buyer-side), per-role economics masking, host-configurable economics, and the JSON 404
+- `gameLogic.test.ts` (14) — shuffle, earnings, round computation unit tests

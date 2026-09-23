@@ -1,5 +1,4 @@
 import { Grade, Session, RoundResult, SellerDecision, BuyerDecision } from '../shared/types'
-import { BUYER_VALUES } from '../shared/constants'
 import { computeSellerEarnings, computeRoundMetrics } from '../services/gameAnalytics'
 
 export function shuffleArray<T>(arr: T[]): T[] {
@@ -11,9 +10,13 @@ export function shuffleArray<T>(arr: T[]): T[] {
   return a
 }
 
-export function calculateBuyerEarnings(grade: Grade | null, price: number | null): number {
+export function calculateBuyerEarnings(
+  buyerValues: Record<Grade, number>,
+  grade: Grade | null,
+  price: number | null,
+): number {
   if (grade === null || price === null) return 0
-  return Math.round((BUYER_VALUES[grade] - price) * 100) / 100
+  return Math.round((buyerValues[grade] - price) * 100) / 100
 }
 
 // Returns the index of the first buyer in the queue without a decision yet,
@@ -42,8 +45,7 @@ export function computeRoundResult(session: Session): RoundResult {
       price,
       unitsOffered: d?.unitsOffered ?? session.maxSellerUnits,
       unitsSold,
-      confirmed: true,
-      earnings: computeSellerEarnings(grade, price, unitsSold),
+      earnings: computeSellerEarnings(session.economics.sellerFirstCosts, grade, price, unitsSold),
     }
   })
 

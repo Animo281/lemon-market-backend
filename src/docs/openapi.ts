@@ -60,9 +60,10 @@ export const openApiSpec = {
           availableOffers: { type: 'array', items: { $ref: '#/components/schemas/AvailableOffer' } },
           economics: {
             type: 'object',
+            description: 'Viewer-masked: buyers only see buyerValues, sellers only sellerFirstCosts, admin sees both — mirrors the paper\'s private information tables.',
             properties: {
-              buyerValues: { type: 'object', description: 'Grade → buyer WTP: {1: 4.0, 2: 8.8, 3: 13.6}' },
-              sellerCosts: { type: 'array', items: { type: 'object', properties: { grade: { type: 'integer' }, first: { type: 'number' }, second: { type: 'number' } } } },
+              buyerValues: { type: 'object', description: 'Grade → buyer WTP, e.g. {1: 4.0, 2: 8.8, 3: 13.6}. Present for buyers and admin.' },
+              sellerFirstCosts: { type: 'object', description: 'Grade → cost of the first unit, e.g. {1: 1.4, 2: 4.6, 3: 11.0}. Each further unit costs +1.00 more. Present for sellers and admin.' },
             },
           },
           limits: {
@@ -105,6 +106,14 @@ export const openApiSpec = {
             numBuyers: { type: 'integer', default: 4 },
             maxSellerUnits: { type: 'integer', default: 2 },
             totalRounds: { type: 'integer', default: 5 },
+            economics: {
+              type: 'object',
+              description: 'Optional — defaults to the Holt & Sherman (1999) values. Both tables must be strictly increasing over grades 1→2→3.',
+              properties: {
+                buyerValues: { type: 'object', description: '{1: 4.0, 2: 8.8, 3: 13.6}' },
+                sellerFirstCosts: { type: 'object', description: '{1: 1.4, 2: 4.6, 3: 11.0} — cost of the first unit per grade; each further unit costs +1.00 more.' },
+              },
+            },
           }}}},
         },
         responses: {
@@ -160,6 +169,9 @@ export const openApiSpec = {
         parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' } }],
         requestBody: { content: { 'application/json': { schema: { type: 'object', properties: {
           maxSellerUnits: { type: 'integer' }, totalRounds: { type: 'integer' },
+          economics: { type: 'object', properties: {
+            buyerValues: { type: 'object' }, sellerFirstCosts: { type: 'object' },
+          } },
         }}}}},
         responses: {
           200: { description: 'PublicSession', content: { 'application/json': { schema: { $ref: '#/components/schemas/PublicSession' } } } },

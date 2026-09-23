@@ -1,28 +1,29 @@
 import { describe, it, expect } from 'vitest'
 import { calculateBuyerEarnings, shuffleArray, computeRoundResult, findNextBuyerIndex } from '../src/lib/gameLogic'
 import { Session } from '../src/shared/types'
+import { DEFAULT_BUYER_VALUES, DEFAULT_ECONOMICS } from '../src/shared/constants'
 
 describe('calculateBuyerEarnings', () => {
   it('returns 0 when grade or price is null', () => {
-    expect(calculateBuyerEarnings(null, null)).toBe(0)
-    expect(calculateBuyerEarnings(1, null)).toBe(0)
-    expect(calculateBuyerEarnings(null, 1)).toBe(0)
+    expect(calculateBuyerEarnings(DEFAULT_BUYER_VALUES, null, null)).toBe(0)
+    expect(calculateBuyerEarnings(DEFAULT_BUYER_VALUES, 1, null)).toBe(0)
+    expect(calculateBuyerEarnings(DEFAULT_BUYER_VALUES, null, 1)).toBe(0)
   })
 
   it('computes grade 1: value 4.0 - price', () => {
-    expect(calculateBuyerEarnings(1, 2.0)).toBeCloseTo(2.0)
+    expect(calculateBuyerEarnings(DEFAULT_BUYER_VALUES, 1, 2.0)).toBeCloseTo(2.0)
   })
 
   it('computes grade 2: value 8.8 - price', () => {
-    expect(calculateBuyerEarnings(2, 5.0)).toBeCloseTo(3.8)
+    expect(calculateBuyerEarnings(DEFAULT_BUYER_VALUES, 2, 5.0)).toBeCloseTo(3.8)
   })
 
   it('computes grade 3: value 13.6 - price', () => {
-    expect(calculateBuyerEarnings(3, 11.0)).toBeCloseTo(2.6)
+    expect(calculateBuyerEarnings(DEFAULT_BUYER_VALUES, 3, 11.0)).toBeCloseTo(2.6)
   })
 
   it('returns negative earnings if price exceeds value', () => {
-    expect(calculateBuyerEarnings(1, 5.0)).toBeCloseTo(-1.0)
+    expect(calculateBuyerEarnings(DEFAULT_BUYER_VALUES, 1, 5.0)).toBeCloseTo(-1.0)
   })
 })
 
@@ -73,6 +74,7 @@ describe('computeRoundResult', () => {
       id: 's1', code: 'TEST', adminToken: 'admin',
       numSellers: 1, numBuyers: 1,
       maxSellerUnits: 2, totalRounds: 5,
+      economics: DEFAULT_ECONOMICS,
       phase: 'round-end', currentRound: 1, infoMode: 'full',
       players: [
         { id: 'seller1', token: 'tok1', name: 'Alice', role: 'seller', slotIndex: 0 },
@@ -80,7 +82,7 @@ describe('computeRoundResult', () => {
       ],
       buyerQueue: ['buyer1'], currentBuyerIndex: 0,
       currentSellerDecisions: {
-        seller1: { playerId: 'seller1', grade: 2, price: 6.0, unitsOffered: 2, unitsSold: 1, confirmed: false },
+        seller1: { playerId: 'seller1', grade: 2, price: 6.0, unitsOffered: 2, unitsSold: 1 },
       },
       currentBuyerDecisions: {
         buyer1: { playerId: 'buyer1', sellerId: 'seller1', grade: 2, price: 6.0, earnings: 2.8 },

@@ -1,17 +1,13 @@
 import { Request, Response, NextFunction } from 'express'
+import { HttpError } from '../http/httpError'
+
+export { HttpError } from '../http/httpError'
 
 // Keeps the "errors are always JSON" contract for unknown routes/methods —
 // without this, Express's default finalhandler answers with an HTML page.
 // Mount after all real routes, before errorHandler.
 export function notFoundHandler(_req: Request, res: Response): void {
   res.status(404).json({ error: 'Nicht gefunden.' })
-}
-
-export class HttpError extends Error {
-  constructor(public status: number, message: string) {
-    super(message)
-    this.name = 'HttpError'
-  }
 }
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {

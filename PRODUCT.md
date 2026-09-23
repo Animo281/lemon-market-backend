@@ -14,7 +14,7 @@ web
 
 ## Product Purpose
 
-Lemon-Market is a real-time multiplayer classroom experiment that lets students live through Akerlof's "Market for Lemons" — the economic theory of market failure caused by information asymmetry. A lecturer creates a session, students join as sellers or buyers, and they play 5 rounds: the first 3 with full quality information, the last 2 with quality hidden from buyers. The shift reveals how asymmetric information collapses market efficiency.
+Lemon-Market is a real-time multiplayer classroom experiment that lets students live through Akerlof's "Market for Lemons" — the economic theory of market failure caused by information asymmetry. A lecturer creates a session, students join as sellers or buyers, and they play through a configurable number of rounds (5 by default). Every round starts with full quality information; the lecturer manually switches to hidden quality — typically after a few rounds, once prices have settled — using an admin control, no fixed round count required. The shift reveals how asymmetric information collapses market efficiency.
 
 Success means: students feel the market fail in real time, not just read about it. The experiment is self-contained, runs in under 30 minutes, and produces a data set (profit tables, supply/demand graphs, total surplus) the lecturer uses for post-game discussion.
 
@@ -26,12 +26,15 @@ The only classroom economics experiment that makes market failure a lived experi
 
 - German-language UI (all copy, labels, phases in German)
 - No accounts or login — sessions identified by a 4-character code
-- Shared types in `/shared/types.ts` must not change
-- Backend API routes must not change
-- Landing page (`/`) is excluded from this redesign
 - Runs in modern browsers; no native app
 - Tailwind CSS + React; no UI component library may be introduced
 - ThemeToggle (dark/light) must remain functional
+
+Two constraints from an earlier visual-redesign task ("shared types must not change",
+"backend API routes must not change", "landing page excluded") scoped that specific
+piece of work, not the product going forward — the host-configurable economics feature
+intentionally changes `/shared/types.ts`, `POST /session`, `PATCH /config`, and the
+`LandingView` config form. Don't read them as standing rules for future work either.
 
 ## Accessibility
 
