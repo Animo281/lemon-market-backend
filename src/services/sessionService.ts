@@ -1,9 +1,10 @@
 import { v4 as uuid } from 'uuid'
-import { Session, Player, Role, Grade } from '../shared/types'
-import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS } from '../shared/constants'
+import { Session, Player, Role, Grade, EconomicsConfig } from '../shared/types'
+import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS, DEFAULT_ECONOMICS } from '../shared/constants'
 import { SessionRepository } from '../repositories/sessionRepository'
-import { HttpError } from '../middleware/errorHandler'
+import { HttpError } from '../http/httpError'
 import { shuffleArray, calculateBuyerEarnings, computeRoundResult, advanceRound, findNextBuyerIndex } from '../lib/gameLogic'
+import { getCurrentPlayerId } from './gameAnalytics'
 
 function checkPhaseTransition(session: Session): void {
   if (session.phase === 'seller-input') {
@@ -30,7 +31,7 @@ function checkPhaseTransition(session: Session): void {
 // instead.
 const CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
-function generateCode(): string {
+export function generateCode(): string {
   return Array.from({ length: 4 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('')
 }
 
@@ -48,15 +49,22 @@ export function createSession(
   numBuyers: number,
   maxSellerUnits: number = DEFAULT_MAX_SELLER_UNITS,
   totalRounds: number = DEFAULT_TOTAL_ROUNDS,
+  requestedCode?: string,
+  economics: EconomicsConfig = DEFAULT_ECONOMICS,
 ): Session {
+  const code = requestedCode?.toUpperCase() ?? createUniqueCode(repo)
+  if (requestedCode && repo.getByCode(code)) {
+    throw new HttpError(409, 'Dieser Session-Code ist bereits vergeben.')
+  }
   const session: Session = {
     id: uuid(),
-    code: createUniqueCode(repo),
+    code,
     adminToken: uuid(),
     numSellers,
     numBuyers,
     maxSellerUnits,
     totalRounds,
+    economics,
     phase: 'lobby',
     currentRound: 1,
     infoMode: 'full',
@@ -98,10 +106,12 @@ export function updateConfig(
   session: Session,
   maxSellerUnits?: number,
   totalRounds?: number,
+  economics?: EconomicsConfig,
 ): Session {
   if (session.phase !== 'lobby') throw new HttpError(400, 'Einstellungen sind nach Spielstart gesperrt.')
   if (maxSellerUnits !== undefined) session.maxSellerUnits = maxSellerUnits
   if (totalRounds !== undefined) session.totalRounds = totalRounds
+  if (economics !== undefined) session.economics = economics
   repo.save(session)
   return session
 }
@@ -135,7 +145,7 @@ export function submitSellerDecision(
   if (session.phase !== 'seller-input') throw new HttpError(400, 'Die Verkaufsphase ist vorbei — deine Entscheidung kommt jetzt zu spät.')
 
   const offered = Math.min(session.maxSellerUnits, Math.max(1, unitsOffered ?? session.maxSellerUnits))
-  session.currentSellerDecisions[playerId] = { playerId, grade, price, unitsOffered: offered, unitsSold: 0, confirmed: false }
+  session.currentSellerDecisions[playerId] = { playerId, grade, price, unitsOffered: offered, unitsSold: 0 }
 
   checkPhaseTransition(session)
 
@@ -151,6 +161,12 @@ export function submitBuyerDecision(
 ): Session {
   if (session.phase !== 'market') throw new HttpError(400, 'Der Markt ist gerade nicht offen.')
   if (session.currentBuyerDecisions[playerId]) throw new HttpError(400, 'Du hast in dieser Runde schon entschieden.')
+  // Paper procedure (S. 3-4): buyers are drawn by lot and shop one at a time,
+  // in that order — later buyers see which stands already sold out. The
+  // queue/currentPlayerId were already computed and shown, just never
+  // enforced (any buyer could act at any moment during 'market'). Enforcing
+  // it here is what makes the visible "Du bist dran" state actually true.
+  if (getCurrentPlayerId(session) !== playerId) throw new HttpError(400, 'Du bist noch nicht an der Reihe.')
 
   let grade = null
   let price = null
@@ -170,7 +186,7 @@ export function submitBuyerDecision(
     if ((sd.unitsSold ?? 0) >= maxUnits) throw new HttpError(400, 'Bei diesem Stand ist alles verkauft.')
     grade = sd.grade ?? null
     price = sd.price ?? null
-    earnings = calculateBuyerEarnings(grade, price)
+    earnings = calculateBuyerEarnings(session.economics.buyerValues, grade, price)
     sd.unitsSold = (sd.unitsSold ?? 0) + 1
   }
 
@@ -252,7 +268,6 @@ export function forceAdvanceFromSellerInput(repo: SessionRepository, session: Se
         price: 0,
         unitsOffered: 0,
         unitsSold: 0,
-        confirmed: false,
         earnings: 0,
       }
     }

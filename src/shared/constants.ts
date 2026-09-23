@@ -1,17 +1,25 @@
-import { Grade } from './types'
+import { EconomicsConfig, Grade } from './types'
 
-export const BUYER_VALUES: Record<Grade, number> = { 1: 4.0, 2: 8.8, 3: 13.6 }
-
-export const SELLER_COSTS: Record<Grade, { first: number; second: number }> = {
-  1: { first: 1.4, second: 2.4 },
-  2: { first: 4.6, second: 5.6 },
-  3: { first: 11.0, second: 12.0 },
+// Holt & Sherman (1999) parameters — the default a session starts with, but no
+// longer the only values: the host can override both tables at session.create
+// (and while still in 'lobby'), see schemas/session.ts. Only the per-unit cost
+// step (below) is a fixed game rule rather than a per-session parameter.
+export const DEFAULT_BUYER_VALUES: Record<Grade, number> = { 1: 4.0, 2: 8.8, 3: 13.6 }
+export const DEFAULT_SELLER_FIRST_COSTS: Record<Grade, number> = { 1: 1.4, 2: 4.6, 3: 11.0 }
+export const DEFAULT_ECONOMICS: EconomicsConfig = {
+  buyerValues: DEFAULT_BUYER_VALUES,
+  sellerFirstCosts: DEFAULT_SELLER_FIRST_COSTS,
 }
 
-// Marginal cost per unit (0-based index): first + index * 1.00
-// Reproduces existing two-unit costs and extrapolates consistently
-export function sellerCost(grade: Grade, unitIndex: number): number {
-  return SELLER_COSTS[grade].first + unitIndex * 1.00
+// Every unit past the first costs $1.00 more to produce — this is the paper's
+// fixed rule ("the 2nd unit costs $1 more"), generalized to any unit count
+// since maxSellerUnits is configurable up to 5. Not part of EconomicsConfig:
+// it doesn't vary per session.
+export const UNIT_COST_STEP = 1.00
+
+// Marginal cost per unit (0-based index): firstCosts[grade] + index * step
+export function sellerCost(firstCosts: Record<Grade, number>, grade: Grade, unitIndex: number): number {
+  return firstCosts[grade] + unitIndex * UNIT_COST_STEP
 }
 
 export const DEFAULT_TOTAL_ROUNDS = 5

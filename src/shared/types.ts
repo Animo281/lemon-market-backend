@@ -3,6 +3,24 @@ export type GamePhase = 'lobby' | 'seller-input' | 'market' | 'round-end' | 'gam
 export type InfoMode = 'full' | 'asymmetric'
 export type Role = 'seller' | 'buyer'
 
+// Per-session economics — configurable by the host at session.create (and while
+// still in 'lobby', like maxSellerUnits/totalRounds). The per-unit cost step
+// beyond the first unit is NOT part of this — it's a fixed rule of the game,
+// not a per-session parameter (UNIT_COST_STEP in shared/constants.ts).
+export interface EconomicsConfig {
+  buyerValues: Record<Grade, number>
+  sellerFirstCosts: Record<Grade, number>
+}
+
+// Viewer-masked view of EconomicsConfig — mirrors the private-information split
+// in the paper's own instructions ("do not reveal the private information
+// tables"): buyers only ever learn their own values, sellers only their own
+// costs, and only the admin (running the debrief) sees both.
+export interface PublicEconomics {
+  buyerValues?: Record<Grade, number>
+  sellerFirstCosts?: Record<Grade, number>
+}
+
 export interface Player {
   id: string
   token: string   // opaque auth token — never sent to clients
@@ -24,7 +42,6 @@ export interface SellerDecision {
   price: number
   unitsOffered: number
   unitsSold: number
-  confirmed: boolean
   earnings: number  // sum of (price - sellerCost(grade, i)) over sold units
 }
 
@@ -75,6 +92,7 @@ export interface Session {
   numBuyers: number
   maxSellerUnits: number
   totalRounds: number
+  economics: EconomicsConfig
   phase: GamePhase
   currentRound: number
   infoMode: InfoMode
@@ -86,14 +104,11 @@ export interface Session {
   results: RoundResult[]
 }
 
-export interface PublicSession extends Omit<Session, 'adminToken' | 'players'> {
+export interface PublicSession extends Omit<Session, 'adminToken' | 'players' | 'economics'> {
   players: PublicPlayer[]
   currentPlayerId: string | null
   availableOffers: AvailableOffer[]
-  economics: {
-    buyerValues: Record<Grade, number>
-    sellerCosts: Array<{ grade: Grade; first: number; second: number }>
-  }
+  economics: PublicEconomics
   limits: {
     maxSellerUnits: number
     maxRounds: number

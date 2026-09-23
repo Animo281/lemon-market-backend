@@ -135,14 +135,17 @@ describe('kickPlayer', () => {
   it('removes buyer in market and triggers round-end when all remaining buyers decided', () => {
     const session = service.createSession(repo, 1, 2)
     const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
-    const { player: b1 } = service.joinSession(repo, session, 'B1', 'buyer', 0)
-    const { player: b2 } = service.joinSession(repo, session, 'B2', 'buyer', 1)
+    service.joinSession(repo, session, 'B1', 'buyer', 0)
+    service.joinSession(repo, session, 'B2', 'buyer', 1)
     service.startGame(repo, session)
     service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
-    service.submitBuyerDecision(repo, session, b1.id, null)
+    // buyerQueue is shuffled — submit for whoever's actually up first, then
+    // kick the other one.
+    const [first, second] = session.buyerQueue
+    service.submitBuyerDecision(repo, session, first, null)
     expect(session.phase).toBe('market')
 
-    service.kickPlayer(repo, session, b2.id)
+    service.kickPlayer(repo, session, second)
     expect(session.phase).toBe('round-end')
   })
 
@@ -247,6 +250,27 @@ describe('currentBuyerIndex advances (bug: used to stay stuck at buyerQueue[0])'
     }
     expect(session.phase).toBe('round-end')
     expect(getCurrentPlayerId(session)).toBeNull()
+  })
+})
+
+describe('submitBuyerDecision enforces the drawn-by-lot order (paper: buyers "shop one at a time")', () => {
+  it('rejects a buyer who is not currentPlayerId', () => {
+    const session = service.createSession(repo, 1, 2)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B1', 'buyer', 0)
+    service.joinSession(repo, session, 'B2', 'buyer', 1)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+
+    const [first, second] = session.buyerQueue
+    expect(() => service.submitBuyerDecision(repo, session, second, null)).toThrowError(HttpError)
+    expect(session.currentBuyerDecisions[second]).toBeUndefined()
+
+    // The rightful buyer still goes through, and the turn then passes on.
+    service.submitBuyerDecision(repo, session, first, null)
+    expect(getCurrentPlayerId(session)).toBe(second)
+    service.submitBuyerDecision(repo, session, second, null)
+    expect(session.phase).toBe('round-end')
   })
 })
 

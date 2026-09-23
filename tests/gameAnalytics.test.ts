@@ -12,11 +12,13 @@ import {
   computeAvailableOffers,
 } from '../src/services/gameAnalytics'
 import { Session } from '../src/shared/types'
+import { DEFAULT_BUYER_VALUES, DEFAULT_SELLER_FIRST_COSTS, DEFAULT_ECONOMICS } from '../src/shared/constants'
 
 const baseSession: Session = {
   id: 's1', code: 'TEST', adminToken: 'admin',
   numSellers: 2, numBuyers: 3,
   maxSellerUnits: 2, totalRounds: 5,
+  economics: DEFAULT_ECONOMICS,
   phase: 'market', currentRound: 1, infoMode: 'full',
   players: [
     { id: 'sel1', token: 't1', name: 'Alice', role: 'seller', slotIndex: 0 },
@@ -27,8 +29,8 @@ const baseSession: Session = {
   ],
   buyerQueue: ['buy1', 'buy2', 'buy3'], currentBuyerIndex: 1,
   currentSellerDecisions: {
-    sel1: { playerId: 'sel1', grade: 2, price: 6.0, unitsOffered: 2, unitsSold: 1, confirmed: false, earnings: 0 },
-    sel2: { playerId: 'sel2', grade: 1, price: 3.0, unitsOffered: 1, unitsSold: 0, confirmed: false, earnings: 0 },
+    sel1: { playerId: 'sel1', grade: 2, price: 6.0, unitsOffered: 2, unitsSold: 1, earnings: 0 },
+    sel2: { playerId: 'sel2', grade: 1, price: 3.0, unitsOffered: 1, unitsSold: 0, earnings: 0 },
   },
   currentBuyerDecisions: {},
   results: [],
@@ -69,48 +71,80 @@ describe('findEquilibrium', () => {
 
 describe('calcAsymmetricWTP', () => {
   it('returns grade 2 value as default for empty grades', () => {
-    expect(calcAsymmetricWTP([])).toBe(8.8)
+    expect(calcAsymmetricWTP(DEFAULT_BUYER_VALUES, [])).toBe(8.8)
   })
 
   it('averages buyer values for mixed grades', () => {
     // grades [1, 2]: (4.0 + 8.8) / 2 = 6.4
-    expect(calcAsymmetricWTP([1, 2])).toBeCloseTo(6.4)
+    expect(calcAsymmetricWTP(DEFAULT_BUYER_VALUES, [1, 2])).toBeCloseTo(6.4)
   })
 
   it('returns single grade value for uniform grade', () => {
-    expect(calcAsymmetricWTP([3, 3])).toBeCloseTo(13.6)
+    expect(calcAsymmetricWTP(DEFAULT_BUYER_VALUES, [3, 3])).toBeCloseTo(13.6)
   })
 })
 
 describe('bestGradeWTP', () => {
   it('returns value of best grade', () => {
-    expect(bestGradeWTP([1, 2, 3])).toBe(13.6)
-    expect(bestGradeWTP([1, 2])).toBe(8.8)
+    expect(bestGradeWTP(DEFAULT_BUYER_VALUES, [1, 2, 3])).toBe(13.6)
+    expect(bestGradeWTP(DEFAULT_BUYER_VALUES, [1, 2])).toBe(8.8)
   })
 
   it('defaults to grade 2 for empty', () => {
-    expect(bestGradeWTP([])).toBe(8.8)
+    expect(bestGradeWTP(DEFAULT_BUYER_VALUES, [])).toBe(8.8)
   })
 })
 
 describe('theoreticalMaxSurplus', () => {
-  it('computes numBuyers * (BUYER_VALUES[2] - sellerCost(2, 0))', () => {
-    // 3 * (8.8 - 4.6) = 3 * 4.2 = 12.6
-    expect(theoreticalMaxSurplus(3)).toBeCloseTo(12.6)
+  it('picks the best grade, capacity- and marginal-cost-aware', () => {
+    // 2 sellers * 2 units = 4 possible units, but only 3 buyers → 3 units clear.
+    // With 2 sellers, unit index 2 (the 3rd unit overall) is some seller's 2nd
+    // unit, so it prices at the higher second-unit cost, not the first-unit one.
+    // grade1: (4.0-1.4) + (4.0-1.4) + (4.0-2.4) = 2.6+2.6+1.6 = 6.8
+    // grade2: (8.8-4.6) + (8.8-4.6) + (8.8-5.6) = 4.2+4.2+3.2 = 11.6  ← best
+    // grade3: (13.6-11.0) + (13.6-11.0) + (13.6-12.0) = 2.6+2.6+1.6 = 6.8
+    expect(theoreticalMaxSurplus(DEFAULT_ECONOMICS, 2, 2, 3)).toBeCloseTo(11.6)
+  })
+
+  it('is 0 when there are no sellers or no buyers', () => {
+    expect(theoreticalMaxSurplus(DEFAULT_ECONOMICS, 0, 2, 3)).toBe(0)
+    expect(theoreticalMaxSurplus(DEFAULT_ECONOMICS, 2, 2, 0)).toBe(0)
+  })
+
+  it('tracks a shifted economics table instead of assuming grade 2', () => {
+    // Grade 3 pays off far more than grade 1 or 2 here, so the search must
+    // pick it even though the Holt & Sherman defaults would pick grade 2.
+    const shifted = {
+      buyerValues: { 1: 4.0, 2: 5.0, 3: 30.0 },
+      sellerFirstCosts: { 1: 1.4, 2: 4.6, 3: 11.0 },
+    }
+    // 1 seller, 1 unit, 1 buyer: grade3 surplus = 30 - 11 = 19, dwarfs grade1/2.
+    expect(theoreticalMaxSurplus(shifted, 1, 1, 1)).toBeCloseTo(19)
+  })
+
+  it('matches the paper\'s own numbers for its own default setup (3 sellers, 4 buyers, 2 units)', () => {
+    // Holt & Sherman (1999) run their worked example at exactly these
+    // defaults (schemas/session.ts) and report grade 2 as the surplus-
+    // maximizing quality. 4 units clear (3*2 capacity >= 4 buyers): 3 of
+    // them are some seller's 1st unit, the 4th is a 2nd unit.
+    // grade1: 3*(4.0-1.4) + (4.0-2.4) = 7.8 + 1.6 = 9.4
+    // grade2: 3*(8.8-4.6) + (8.8-5.6) = 12.6 + 3.2 = 15.8  ← matches the paper
+    // grade3: 3*(13.6-11.0) + (13.6-12.0) = 7.8 + 1.6 = 9.4
+    expect(theoreticalMaxSurplus(DEFAULT_ECONOMICS, 3, 2, 4)).toBeCloseTo(15.8)
   })
 })
 
 describe('computeSellerEarnings', () => {
   it('returns 0 for 0 units sold', () => {
-    expect(computeSellerEarnings(2, 6.0, 0)).toBe(0)
+    expect(computeSellerEarnings(DEFAULT_SELLER_FIRST_COSTS, 2, 6.0, 0)).toBe(0)
   })
 
   it('computes earnings for grade 2 at price 6: (6-4.6) = 1.4 for 1 unit', () => {
-    expect(computeSellerEarnings(2, 6.0, 1)).toBeCloseTo(1.4)
+    expect(computeSellerEarnings(DEFAULT_SELLER_FIRST_COSTS, 2, 6.0, 1)).toBeCloseTo(1.4)
   })
 
   it('computes earnings for 2 units: (6-4.6) + (6-5.6) = 1.4 + 0.4 = 1.8', () => {
-    expect(computeSellerEarnings(2, 6.0, 2)).toBeCloseTo(1.8)
+    expect(computeSellerEarnings(DEFAULT_SELLER_FIRST_COSTS, 2, 6.0, 2)).toBeCloseTo(1.8)
   })
 })
 
@@ -126,14 +160,14 @@ describe('buildSupplyCurve', () => {
 
 describe('buildDemandCurve', () => {
   it('full info: repeats best-grade WTP for all buyers', () => {
-    const curve = buildDemandCurve([2, 1], 'full', 3)
+    const curve = buildDemandCurve(DEFAULT_BUYER_VALUES, [2, 1], 'full', 3)
     // bestGradeWTP([2,1]) = BUYER_VALUES[2] = 8.8
     expect(curve).toHaveLength(3)
     expect(curve.every(v => Math.abs(v - 8.8) < 0.001)).toBe(true)
   })
 
   it('asymmetric info: repeats average WTP', () => {
-    const curve = buildDemandCurve([1, 2], 'asymmetric', 2)
+    const curve = buildDemandCurve(DEFAULT_BUYER_VALUES, [1, 2], 'asymmetric', 2)
     // avg = (4.0 + 8.8)/2 = 6.4
     expect(curve.every(v => Math.abs(v - 6.4) < 0.001)).toBe(true)
   })
@@ -151,8 +185,9 @@ describe('computeRoundMetrics', () => {
     expect(metrics.totalSellerProfit).toBeCloseTo(1.4)
     expect(metrics.totalBuyerProfit).toBeCloseTo(2.8)
     expect(metrics.avgTransactionPrice).toBeCloseTo(6.0)
-    expect(metrics.theoreticalMaxSurplus).toBeCloseTo(12.6) // 3 buyers
-    expect(metrics.efficiency).toBeCloseTo(4.2 / 12.6)
+    // baseSession: 2 sellers, 2 units each, 3 buyers → see theoreticalMaxSurplus tests
+    expect(metrics.theoreticalMaxSurplus).toBeCloseTo(11.6)
+    expect(metrics.efficiency).toBeCloseTo(4.2 / 11.6)
     expect(metrics.supplyCurve).toEqual([6, 6])
     expect(metrics.equilibrium).not.toBeNull()
   })

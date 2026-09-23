@@ -1,14 +1,12 @@
 import { Request, Response, NextFunction } from 'express'
 import { SessionRepository } from '../repositories/sessionRepository'
-import { HttpError } from './errorHandler'
+import { HttpError } from '../http/httpError'
 import { Session, Role, Player } from '../shared/types'
+import { Viewer } from '../shared/viewer'
+
+export type { Viewer } from '../shared/viewer'
 
 // Non-throwing identity resolution for GET /:code — see resolveViewer below.
-export type Viewer =
-  | { kind: 'admin' }
-  | { kind: 'player'; player: Player }
-  | { kind: 'anonymous' }
-
 declare global {
   namespace Express {
     interface Request {
