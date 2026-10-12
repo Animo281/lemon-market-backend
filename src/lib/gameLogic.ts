@@ -1,4 +1,4 @@
-import { Grade, Session, RoundResult, SellerDecision, BuyerDecision } from '../shared/types'
+import { Grade, Session, Player, Role, RoundResult, SellerDecision, BuyerDecision } from '../shared/types'
 import { computeSellerEarnings, computeRoundMetrics } from '../services/gameAnalytics'
 
 export function shuffleArray<T>(arr: T[]): T[] {
@@ -8,6 +8,18 @@ export function shuffleArray<T>(arr: T[]): T[] {
     [a[i], a[j]] = [a[j], a[i]]
   }
   return a
+}
+
+export function playersByRole(session: Session, role: Role): Player[] {
+  return session.players.filter(p => p.role === role)
+}
+
+export function shuffledBuyerQueue(session: Session): string[] {
+  return shuffleArray(playersByRole(session, 'buyer').map(b => b.id))
+}
+
+export function noPurchase(playerId: string): BuyerDecision {
+  return { playerId, sellerId: null, grade: null, price: null, earnings: 0 }
 }
 
 export function calculateBuyerEarnings(
@@ -31,12 +43,12 @@ export function findNextBuyerIndex(
 }
 
 export function computeRoundResult(session: Session): RoundResult {
-  const sellers = session.players.filter(p => p.role === 'seller')
-  const buyers = session.players.filter(p => p.role === 'buyer')
+  const sellers = playersByRole(session, 'seller')
+  const buyers = playersByRole(session, 'buyer')
 
   const sellerDecisions: SellerDecision[] = sellers.map(seller => {
     const d = session.currentSellerDecisions[seller.id]
-    const grade = (d?.grade ?? 1) as Grade
+    const grade = d?.grade ?? 1
     const price = d?.price ?? 0
     const unitsSold = d?.unitsSold ?? 0
     return {
@@ -50,19 +62,13 @@ export function computeRoundResult(session: Session): RoundResult {
   })
 
   const buyerDecisions: BuyerDecision[] = buyers.map(buyer =>
-    session.currentBuyerDecisions[buyer.id] ?? {
-      playerId: buyer.id,
-      sellerId: null,
-      grade: null,
-      price: null,
-      earnings: 0,
-    }
+    session.currentBuyerDecisions[buyer.id] ?? noPurchase(buyer.id)
   )
 
-  let totalSurplus = sellerDecisions.reduce((s, sd) => s + sd.earnings, 0)
+  const totalSurplus = Math.round((
+    sellerDecisions.reduce((s, sd) => s + sd.earnings, 0)
     + buyerDecisions.reduce((s, bd) => s + bd.earnings, 0)
-
-  totalSurplus = Math.round(totalSurplus * 100) / 100
+  ) * 100) / 100
 
   const metrics = computeRoundMetrics(session, sellerDecisions, buyerDecisions, session.infoMode, totalSurplus)
 
@@ -72,15 +78,12 @@ export function computeRoundResult(session: Session): RoundResult {
 export function advanceRound(session: Session): Session {
   const nextRound = session.currentRound + 1
   const isGameEnd = nextRound > session.totalRounds
-  const buyers = session.players.filter(p => p.role === 'buyer')
   return {
     ...session,
-    // At game-end, stay at totalRounds instead of overshooting to
-    // totalRounds + 1 — nothing plays a round that doesn't exist, so
-    // "Runde 6 von 5" on the results screen was a pure display bug.
+    // At game-end, stay at totalRounds instead of overshooting to totalRounds + 1.
     currentRound: isGameEnd ? session.totalRounds : nextRound,
     phase: isGameEnd ? 'game-end' : 'seller-input',
-    buyerQueue: shuffleArray(buyers.map(b => b.id)),
+    buyerQueue: shuffledBuyerQueue(session),
     currentBuyerIndex: 0,
     currentSellerDecisions: {},
     currentBuyerDecisions: {},

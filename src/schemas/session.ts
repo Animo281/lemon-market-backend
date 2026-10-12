@@ -3,6 +3,7 @@ import {
   MAX_SELLER_UNITS_LIMIT, MAX_ROUNDS_LIMIT, DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS,
   MAX_SELLERS_LIMIT, MAX_BUYERS_LIMIT, DEFAULT_ECONOMICS,
 } from '../shared/constants'
+import { Grade } from '../shared/types'
 
 const gradeTableSchema = z.object({
   1: z.number().positive(),
@@ -15,7 +16,7 @@ const gradeTableSchema = z.object({
 // theoreticalMaxSurplus search) assumes quality is monotonically ordered by
 // value and cost. Without this check a host could submit e.g. buyerValues
 // {1: 10, 2: 5, 3: 1} and silently invert the game.
-function monotonic(table: Record<1 | 2 | 3, number>): boolean {
+function monotonic(table: Record<Grade, number>): boolean {
   return table[1] < table[2] && table[2] < table[3]
 }
 

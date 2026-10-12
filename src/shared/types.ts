@@ -1,3 +1,5 @@
+import type { LIMITS } from './constants'
+
 export type Grade = 1 | 2 | 3
 export type GamePhase = 'lobby' | 'seller-input' | 'market' | 'round-end' | 'game-end'
 export type InfoMode = 'full' | 'asymmetric'
@@ -113,11 +115,6 @@ export interface PublicSession extends Omit<Session, 'adminToken' | 'players' | 
   currentPlayerId: string | null
   availableOffers: AvailableOffer[]
   economics: PublicEconomics
-  limits: {
-    maxSellerUnits: number
-    maxRounds: number
-    maxSellers: number
-    maxBuyers: number
-  }
+  limits: typeof LIMITS
   currentRoundMetrics: RoundMetrics | null
 }

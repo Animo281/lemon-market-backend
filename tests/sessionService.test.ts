@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createMemoryRepository } from '../src/repositories/sessionRepository'
 import * as service from '../src/services/sessionService'
-import { HttpError } from '../src/middleware/errorHandler'
+import { HttpError } from '../src/http/httpError'
 import { SessionRepository } from '../src/repositories/sessionRepository'
 import { getCurrentPlayerId } from '../src/services/gameAnalytics'
 
