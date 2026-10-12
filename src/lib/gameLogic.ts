@@ -45,7 +45,7 @@ export function computeRoundResult(session: Session): RoundResult {
       price,
       unitsOffered: d?.unitsOffered ?? session.maxSellerUnits,
       unitsSold,
-      earnings: computeSellerEarnings(session.economics.sellerFirstCosts, grade, price, unitsSold),
+      earnings: computeSellerEarnings(session.economics, grade, price, unitsSold),
     }
   })
 

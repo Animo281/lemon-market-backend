@@ -6,20 +6,20 @@ import { EconomicsConfig, Grade } from './types'
 // step (below) is a fixed game rule rather than a per-session parameter.
 export const DEFAULT_BUYER_VALUES: Record<Grade, number> = { 1: 4.0, 2: 8.8, 3: 13.6 }
 export const DEFAULT_SELLER_FIRST_COSTS: Record<Grade, number> = { 1: 1.4, 2: 4.6, 3: 11.0 }
+// The paper's own fixed rule ("2nd unit costs $1 more") — kept as the default
+// value, but host-configurable per session via economics.unitCostStep.
+export const UNIT_COST_STEP = 1.00
 export const DEFAULT_ECONOMICS: EconomicsConfig = {
   buyerValues: DEFAULT_BUYER_VALUES,
   sellerFirstCosts: DEFAULT_SELLER_FIRST_COSTS,
+  unitCostStep: UNIT_COST_STEP,
 }
 
-// Every unit past the first costs $1.00 more to produce — this is the paper's
-// fixed rule ("the 2nd unit costs $1 more"), generalized to any unit count
-// since maxSellerUnits is configurable up to 5. Not part of EconomicsConfig:
-// it doesn't vary per session.
-export const UNIT_COST_STEP = 1.00
-
-// Marginal cost per unit (0-based index): firstCosts[grade] + index * step
-export function sellerCost(firstCosts: Record<Grade, number>, grade: Grade, unitIndex: number): number {
-  return firstCosts[grade] + unitIndex * UNIT_COST_STEP
+// Marginal cost per unit (0-based index): firstCosts[grade] + index * step.
+// step defaults to UNIT_COST_STEP for callers that don't carry a full
+// economics config in scope; pass economics.unitCostStep where available.
+export function sellerCost(firstCosts: Record<Grade, number>, grade: Grade, unitIndex: number, step: number = UNIT_COST_STEP): number {
+  return firstCosts[grade] + unitIndex * step
 }
 
 export const DEFAULT_TOTAL_ROUNDS = 5

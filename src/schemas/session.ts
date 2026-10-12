@@ -22,6 +22,7 @@ function monotonic(table: Record<1 | 2 | 3, number>): boolean {
 export const economicsSchema = z.object({
   buyerValues: gradeTableSchema,
   sellerFirstCosts: gradeTableSchema,
+  unitCostStep: z.number().positive(),
 }).superRefine((econ, ctx) => {
   if (!monotonic(econ.buyerValues)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['buyerValues'], message: 'Käuferwerte müssen mit der Qualität steigen: Q1 < Q2 < Q3.' })

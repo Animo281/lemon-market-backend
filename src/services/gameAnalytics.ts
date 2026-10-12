@@ -46,7 +46,7 @@ export function theoreticalMaxSurplus(
     let surplus = 0
     for (let i = 0; i < units; i++) {
       const unitIndex = Math.floor(i / numSellers)
-      const marginal = economics.buyerValues[grade] - sellerCost(economics.sellerFirstCosts, grade, unitIndex)
+      const marginal = economics.buyerValues[grade] - sellerCost(economics.sellerFirstCosts, grade, unitIndex, economics.unitCostStep)
       if (marginal > 0) surplus += marginal
     }
     if (surplus > best) best = surplus
@@ -55,14 +55,14 @@ export function theoreticalMaxSurplus(
 }
 
 export function computeSellerEarnings(
-  sellerFirstCosts: Record<Grade, number>,
+  economics: EconomicsConfig,
   grade: Grade,
   price: number,
   unitsSold: number,
 ): number {
   let total = 0
   for (let i = 0; i < unitsSold; i++) {
-    total += price - sellerCost(sellerFirstCosts, grade, i)
+    total += price - sellerCost(economics.sellerFirstCosts, grade, i, economics.unitCostStep)
   }
   return total
 }
