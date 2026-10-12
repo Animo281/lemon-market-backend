@@ -2,11 +2,8 @@ import { Request, Response, NextFunction } from 'express'
 import { SessionRepository } from '../repositories/sessionRepository'
 import { HttpError } from '../http/httpError'
 import { Session, Role, Player } from '../shared/types'
-import { Viewer } from '../shared/viewer'
+import { findPlayerByToken, resolveViewer as resolveViewerForToken, Viewer } from '../shared/viewer'
 
-export type { Viewer } from '../shared/viewer'
-
-// Non-throwing identity resolution for GET /:code — see resolveViewer below.
 declare global {
   namespace Express {
     interface Request {
@@ -34,7 +31,7 @@ export function createSessionMiddleware(repo: SessionRepository) {
   function requirePlayer(role?: Role) {
     return (req: Request, _res: Response, next: NextFunction): void => {
       const token = req.headers['x-token'] as string | undefined
-      const player = token ? req.session!.players.find(p => p.token === token) : undefined
+      const player = findPlayerByToken(req.session!, token)
       if (!player) throw new HttpError(403, 'Zugriff verweigert — kein gültiges Spieler-Token.')
       if (role && player.role !== role) {
         throw new HttpError(403, role === 'seller' ? 'Nur Verkäufer dürfen das.' : 'Nur Käufer dürfen das.')
@@ -44,19 +41,11 @@ export function createSessionMiddleware(repo: SessionRepository) {
     }
   }
 
-  // Non-throwing: resolves *who* is asking (admin / a specific player / nobody
-  // identifiable) without gating access — used by GET /:code so toPublic() can
-  // decide what to mask (e.g. hidden grade in asymmetric mode) without adding
-  // a hard auth requirement to a route that must stay publicly pollable.
+  // Non-throwing: resolves who's asking without gating access, so GET /:code
+  // can still mask e.g. a hidden grade without requiring auth.
   function resolveViewer(req: Request, _res: Response, next: NextFunction): void {
     const token = req.headers['x-token'] as string | undefined
-    const session = req.session!
-    if (token && token === session.adminToken) {
-      req.viewer = { kind: 'admin' }
-    } else {
-      const player = token ? session.players.find(p => p.token === token) : undefined
-      req.viewer = player ? { kind: 'player', player } : { kind: 'anonymous' }
-    }
+    req.viewer = resolveViewerForToken(req.session!, token)
     next()
   }
 

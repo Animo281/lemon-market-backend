@@ -3,21 +3,20 @@ import { Session, Player, Role, Grade, EconomicsConfig } from '../shared/types'
 import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS, DEFAULT_ECONOMICS } from '../shared/constants'
 import { SessionRepository } from '../repositories/sessionRepository'
 import { HttpError } from '../http/httpError'
-import { shuffleArray, calculateBuyerEarnings, computeRoundResult, advanceRound, findNextBuyerIndex } from '../lib/gameLogic'
+import { playersByRole, shuffledBuyerQueue, noPurchase, calculateBuyerEarnings, computeRoundResult, advanceRound, findNextBuyerIndex } from '../lib/gameLogic'
 import { getCurrentPlayerId } from './gameAnalytics'
 
 function checkPhaseTransition(session: Session): void {
   if (session.phase === 'seller-input') {
-    const sellers = session.players.filter(p => p.role === 'seller')
+    const sellers = playersByRole(session, 'seller')
     if (sellers.every(s => s.id in session.currentSellerDecisions)) {
-      const buyers = session.players.filter(p => p.role === 'buyer')
       session.phase = 'market'
-      session.buyerQueue = shuffleArray(buyers.map(b => b.id))
+      session.buyerQueue = shuffledBuyerQueue(session)
       session.currentBuyerIndex = 0
     }
   } else if (session.phase === 'market') {
     session.currentBuyerIndex = findNextBuyerIndex(session.buyerQueue, session.currentBuyerDecisions)
-    const buyers = session.players.filter(p => p.role === 'buyer')
+    const buyers = playersByRole(session, 'buyer')
     if (Object.keys(session.currentBuyerDecisions).length >= buyers.length) {
       session.results.push(computeRoundResult(session))
       session.phase = 'round-end'
@@ -118,15 +117,15 @@ export function updateConfig(
 
 export function startGame(repo: SessionRepository, session: Session): Session {
   if (session.phase !== 'lobby') throw new HttpError(400, 'Das Spiel läuft bereits.')
-  const sellers = session.players.filter(p => p.role === 'seller')
-  const buyers = session.players.filter(p => p.role === 'buyer')
+  const sellers = playersByRole(session, 'seller')
+  const buyers = playersByRole(session, 'buyer')
   if (sellers.length === 0 || buyers.length === 0) {
     throw new HttpError(400, 'Mindestens 1 Verkäufer und 1 Käufer nötig, bevor das Spiel startet.')
   }
   session.phase = 'seller-input'
   session.currentRound = 1
   session.infoMode = 'full'
-  session.buyerQueue = shuffleArray(buyers.map(b => b.id))
+  session.buyerQueue = shuffledBuyerQueue(session)
   session.currentBuyerIndex = 0
   session.currentSellerDecisions = {}
   session.currentBuyerDecisions = {}
@@ -162,10 +161,7 @@ export function submitBuyerDecision(
   if (session.phase !== 'market') throw new HttpError(400, 'Der Markt ist gerade nicht offen.')
   if (session.currentBuyerDecisions[playerId]) throw new HttpError(400, 'Du hast in dieser Runde schon entschieden.')
   // Paper procedure (S. 3-4): buyers are drawn by lot and shop one at a time,
-  // in that order — later buyers see which stands already sold out. The
-  // queue/currentPlayerId were already computed and shown, just never
-  // enforced (any buyer could act at any moment during 'market'). Enforcing
-  // it here is what makes the visible "Du bist dran" state actually true.
+  // in that order — later buyers see which stands already sold out.
   if (getCurrentPlayerId(session) !== playerId) throw new HttpError(400, 'Du bist noch nicht an der Reihe.')
 
   let grade = null
@@ -222,7 +218,7 @@ export function kickPlayer(repo: SessionRepository, session: Session, playerId: 
     const decision = session.currentBuyerDecisions[playerId]
     if (decision?.sellerId) {
       const sd = session.currentSellerDecisions[decision.sellerId]
-      if (sd && (sd.unitsSold ?? 0) > 0) sd.unitsSold = (sd.unitsSold ?? 0) - 1
+      if (sd && (sd.unitsSold ?? 0) > 0) sd.unitsSold! -= 1
     }
   }
 
@@ -243,13 +239,7 @@ export function skipCurrentBuyer(repo: SessionRepository, session: Session): Ses
   if (!currentPlayerId) throw new HttpError(400, 'Kein Käufer ist gerade an der Reihe.')
   if (session.currentBuyerDecisions[currentPlayerId]) throw new HttpError(400, 'Dieser Käufer hat bereits entschieden.')
 
-  session.currentBuyerDecisions[currentPlayerId] = {
-    playerId: currentPlayerId,
-    sellerId: null,
-    grade: null,
-    price: null,
-    earnings: 0,
-  }
+  session.currentBuyerDecisions[currentPlayerId] = noPurchase(currentPlayerId)
 
   checkPhaseTransition(session)
   repo.save(session)
@@ -259,7 +249,7 @@ export function skipCurrentBuyer(repo: SessionRepository, session: Session): Ses
 export function forceAdvanceFromSellerInput(repo: SessionRepository, session: Session): Session {
   if (session.phase !== 'seller-input') throw new HttpError(400, 'Die Verkaufsphase läuft gerade nicht.')
 
-  const sellers = session.players.filter(p => p.role === 'seller')
+  const sellers = playersByRole(session, 'seller')
   for (const seller of sellers) {
     if (!(seller.id in session.currentSellerDecisions)) {
       session.currentSellerDecisions[seller.id] = {

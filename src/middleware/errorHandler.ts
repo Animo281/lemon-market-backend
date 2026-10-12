@@ -1,8 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { HttpError } from '../http/httpError'
 
-export { HttpError } from '../http/httpError'
-
 // Keeps the "errors are always JSON" contract for unknown routes/methods —
 // without this, Express's default finalhandler answers with an HTML page.
 // Mount after all real routes, before errorHandler.

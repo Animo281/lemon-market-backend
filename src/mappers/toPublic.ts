@@ -7,6 +7,7 @@ import {
 } from '../services/gameAnalytics'
 import { LIMITS } from '../shared/constants'
 import { Viewer } from '../shared/viewer'
+import { playersByRole } from '../lib/gameLogic'
 
 // True exactly when the market board is still "live" and grades are supposed
 // to be hidden from buyers — i.e. when revealing anything grade-derived would
@@ -26,13 +27,18 @@ function computeCurrentRoundMetrics(session: Session, viewer: Viewer): RoundMetr
   // below for no reason.
   if (isHiddenMarket(session) && viewer.kind !== 'admin') return null
 
-  const sellers = session.players.filter(p => p.role === 'seller')
-  const decided = sellers.map(s => {
+  const sellers = playersByRole(session, 'seller')
+  const decided = sellers.flatMap(s => {
     const d = session.currentSellerDecisions[s.id]
-    return d?.price !== undefined
-      ? { grade: d.grade!, price: d.price, unitsOffered: d.unitsOffered ?? session.maxSellerUnits, unitsSold: d.unitsSold ?? 0, earnings: computeSellerEarnings(session.economics, d.grade!, d.price, d.unitsSold ?? 0) }
-      : null
-  }).filter((d): d is NonNullable<typeof d> => d !== null)
+    if (d?.price === undefined) return []
+    return [{
+      grade: d.grade!,
+      price: d.price,
+      unitsOffered: d.unitsOffered ?? session.maxSellerUnits,
+      unitsSold: d.unitsSold ?? 0,
+      earnings: computeSellerEarnings(session.economics, d.grade!, d.price, d.unitsSold ?? 0),
+    }]
+  })
 
   const buyerDecisions = Object.values(session.currentBuyerDecisions)
   const totalSurplus = decided.reduce((s, d) => s + d.earnings, 0) + buyerDecisions.reduce((s, bd) => s + bd.earnings, 0)
@@ -40,13 +46,9 @@ function computeCurrentRoundMetrics(session: Session, viewer: Viewer): RoundMetr
   return computeRoundMetrics(session, decided, buyerDecisions, session.infoMode, totalSurplus)
 }
 
-// computeAvailableOffers() already masks `grade` correctly for the offer
-// list, but currentSellerDecisions was being spread into every response
-// verbatim — including the real grade, in the clear, to any caller with the
-// session code. That defeats the whole "asymmetric info" mechanic for anyone
-// who opens devtools. Only admins and each seller's own decision keep the
-// real grade; everyone else sees it masked while infoMode is 'asymmetric',
-// same rule computeAvailableOffers already applies.
+// Only admins and each seller's own decision keep the real grade; everyone
+// else sees it masked while infoMode is 'asymmetric' — same rule
+// computeAvailableOffers already applies.
 function maskedSellerDecisions(
   session: Session,
   viewer: Viewer,
@@ -61,17 +63,11 @@ function maskedSellerDecisions(
   return masked
 }
 
-// The seller-side mask above closed the devtools leak for currentSellerDecisions,
-// but currentBuyerDecisions had the exact same hole from the other direction:
-// BuyerDecision.grade is copied straight from the seller's decision the moment
-// a buyer checks out (submitBuyerDecision in sessionService.ts), and .earnings
-// is buyerValues[grade] - price — arithmetically reveals the grade even
-// without the field. In the paper, buyers "do not find out the grade of their
-// purchase until the instructor writes all sellers' grades in the table after
-// all buyers are finished shopping" — so during a still-open asymmetric-info
-// market, nobody but the admin gets grade/earnings here, not even the buyer
-// who made the purchase themself. Once the round ends this stops applying —
-// session.results[] is the paper's "aufgedeckte Tafel" and stays unmasked.
+// In the paper, buyers "do not find out the grade of their purchase until
+// the instructor writes all sellers' grades in the table after all buyers
+// are finished shopping" — so during a still-open asymmetric-info market,
+// nobody but the admin gets grade/earnings here, not even the buyer who made
+// the purchase. Once the round ends, session.results[] stays unmasked.
 function maskedBuyerDecisions(
   session: Session,
   viewer: Viewer,

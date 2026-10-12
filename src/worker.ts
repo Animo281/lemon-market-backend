@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { ZodSchema } from 'zod'
+import { z, ZodSchema } from 'zod'
 import { openApiSpec } from './docs/openapi'
 import { HttpError } from './http/httpError'
 import { toPublic } from './mappers/toPublic'
@@ -13,7 +13,7 @@ import {
 } from './schemas/session'
 import * as service from './services/sessionService'
 import { Player, Role, Session } from './shared/types'
-import { Viewer } from './shared/viewer'
+import { findPlayerByToken, resolveViewer } from './shared/viewer'
 
 interface Env {
   SESSIONS: DurableObjectNamespace<SessionDurableObject>
@@ -44,10 +44,10 @@ async function validatedBody<T>(request: Request, schema: ZodSchema<T>): Promise
 
   const result = schema.safeParse(input)
   if (!result.success) {
-    return Promise.reject(Object.assign(
+    throw Object.assign(
       new HttpError(400, 'Eingabe ungültig — bitte Werte prüfen.'),
       { issues: result.error.issues },
-    ))
+    )
   }
   return result.data
 }
@@ -63,13 +63,6 @@ function tokenFrom(request: Request): string | null {
   return request.headers.get('x-token')
 }
 
-function resolveViewer(session: Session, request: Request): Viewer {
-  const token = tokenFrom(request)
-  if (token && token === session.adminToken) return { kind: 'admin' }
-  const player = token ? session.players.find(candidate => candidate.token === token) : undefined
-  return player ? { kind: 'player', player } : { kind: 'anonymous' }
-}
-
 function requireAdmin(session: Session, request: Request): void {
   if (tokenFrom(request) !== session.adminToken) {
     throw new HttpError(403, 'Zugriff verweigert — kein gültiges Admin-Token.')
@@ -77,8 +70,7 @@ function requireAdmin(session: Session, request: Request): void {
 }
 
 function requirePlayer(session: Session, request: Request, role?: Role): Player {
-  const token = tokenFrom(request)
-  const player = token ? session.players.find(candidate => candidate.token === token) : undefined
+  const player = findPlayerByToken(session, tokenFrom(request))
   if (!player) throw new HttpError(403, 'Zugriff verweigert — kein gültiges Spieler-Token.')
   if (role && player.role !== role) {
     throw new HttpError(403, role === 'seller' ? 'Nur Verkäufer dürfen das.' : 'Nur Käufer dürfen das.')
@@ -106,7 +98,7 @@ Content-Type: application/json
 }
 
 async function createRemoteSession(request: Request, env: Env): Promise<Response> {
-  let body: Awaited<ReturnType<typeof validatedBody<typeof createSessionSchema._output>>>
+  let body: z.output<typeof createSessionSchema>
   try {
     body = await validatedBody(request, createSessionSchema)
   } catch (error) {
@@ -152,9 +144,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>
 
-interface CreateMessage extends Omit<ReturnType<typeof createSessionSchema.parse>, never> {
-  code: string
-}
+type CreateMessage = z.output<typeof createSessionSchema> & { code: string }
 
 export class SessionDurableObject extends DurableObject<Env> {
   private session: Session | undefined
@@ -217,8 +207,7 @@ export class SessionDurableObject extends DurableObject<Env> {
     const suffix = match?.[2] ?? ''
     const snapshot = structuredClone(this.session)
     const repo = createMemoryRepository([this.session])
-    const viewer = resolveViewer(this.session, request)
-    let mutated = false
+    const viewer = resolveViewer(this.session, tokenFrom(request))
     let payload: unknown
 
     try {
@@ -228,53 +217,43 @@ export class SessionDurableObject extends DurableObject<Env> {
         const body = await validatedBody(request, joinSessionSchema)
         const { player, token } = service.joinSession(repo, this.session, body.name, body.role, body.slotIndex)
         payload = { playerToken: token, playerId: player.id, session: toPublic(this.session, viewer) }
-        mutated = true
       } else if (request.method === 'POST' && suffix === 'start') {
         requireAdmin(this.session, request)
         payload = toPublic(service.startGame(repo, this.session), viewer)
-        mutated = true
       } else if (request.method === 'PATCH' && suffix === 'config') {
         requireAdmin(this.session, request)
         const body = await validatedBody(request, configSessionSchema)
         payload = toPublic(service.updateConfig(repo, this.session, body.maxSellerUnits, body.totalRounds, body.economics), viewer)
-        mutated = true
       } else if (request.method === 'POST' && suffix === 'seller-decision') {
         const player = requirePlayer(this.session, request, 'seller')
         const body = await validatedBody(request, sellerDecisionSchema)
         payload = toPublic(service.submitSellerDecision(repo, this.session, player.id, body.grade, body.price, body.unitsOffered), viewer)
-        mutated = true
       } else if (request.method === 'POST' && suffix === 'buyer-decision') {
         const player = requirePlayer(this.session, request, 'buyer')
         const body = await validatedBody(request, buyerDecisionSchema)
         payload = toPublic(service.submitBuyerDecision(repo, this.session, player.id, body.sellerId), viewer)
-        mutated = true
       } else if (request.method === 'POST' && suffix === 'toggle-info-mode') {
         requireAdmin(this.session, request)
         payload = toPublic(service.toggleInfoMode(repo, this.session), viewer)
-        mutated = true
       } else if (request.method === 'POST' && suffix === 'next-round') {
         requireAdmin(this.session, request)
         payload = toPublic(service.advanceToNextRound(repo, this.session), viewer)
-        mutated = true
       } else if (request.method === 'POST' && suffix === 'skip-buyer') {
         requireAdmin(this.session, request)
         payload = toPublic(service.skipCurrentBuyer(repo, this.session), viewer)
-        mutated = true
       } else if (request.method === 'POST' && suffix === 'force-advance') {
         requireAdmin(this.session, request)
         payload = toPublic(service.forceAdvanceFromSellerInput(repo, this.session), viewer)
-        mutated = true
       } else if (request.method === 'DELETE' && suffix.startsWith('players/')) {
         requireAdmin(this.session, request)
         const playerId = decodeURIComponent(suffix.slice('players/'.length))
         if (!playerId || playerId.includes('/')) throw new HttpError(404, 'Nicht gefunden.')
         payload = toPublic(service.kickPlayer(repo, this.session, playerId), viewer)
-        mutated = true
       } else {
         throw new HttpError(404, 'Nicht gefunden.')
       }
 
-      if (mutated) await this.ctx.storage.put('session', this.session)
+      if (request.method !== 'GET') await this.ctx.storage.put('session', this.session)
       return json(payload)
     } catch (error) {
       this.session = snapshot
