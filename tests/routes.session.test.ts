@@ -414,6 +414,7 @@ describe('Host-configurable economics', () => {
       economics: {
         buyerValues: { 1: 10, 2: 20, 3: 30 },
         sellerFirstCosts: { 1: 2, 2: 5, 3: 9 },
+        unitCostStep: 1.0,
       },
     })
     const { body: { playerToken: sellerToken, playerId: sellerId } } = await request(app)
@@ -436,6 +437,7 @@ describe('Host-configurable economics', () => {
       economics: {
         buyerValues: { 1: 4.0, 2: 8.8, 3: 13.6 },
         sellerFirstCosts: { 1: 5.0, 2: 4.0, 3: 11.0 },
+        unitCostStep: 1.0,
       },
     })
     expect(res.status).toBe(400)

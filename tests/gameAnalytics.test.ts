@@ -12,7 +12,7 @@ import {
   computeAvailableOffers,
 } from '../src/services/gameAnalytics'
 import { Session } from '../src/shared/types'
-import { DEFAULT_BUYER_VALUES, DEFAULT_SELLER_FIRST_COSTS, DEFAULT_ECONOMICS } from '../src/shared/constants'
+import { DEFAULT_BUYER_VALUES, DEFAULT_ECONOMICS } from '../src/shared/constants'
 
 const baseSession: Session = {
   id: 's1', code: 'TEST', adminToken: 'admin',
@@ -117,6 +117,7 @@ describe('theoreticalMaxSurplus', () => {
     const shifted = {
       buyerValues: { 1: 4.0, 2: 5.0, 3: 30.0 },
       sellerFirstCosts: { 1: 1.4, 2: 4.6, 3: 11.0 },
+      unitCostStep: 1.0,
     }
     // 1 seller, 1 unit, 1 buyer: grade3 surplus = 30 - 11 = 19, dwarfs grade1/2.
     expect(theoreticalMaxSurplus(shifted, 1, 1, 1)).toBeCloseTo(19)
@@ -136,15 +137,15 @@ describe('theoreticalMaxSurplus', () => {
 
 describe('computeSellerEarnings', () => {
   it('returns 0 for 0 units sold', () => {
-    expect(computeSellerEarnings(DEFAULT_SELLER_FIRST_COSTS, 2, 6.0, 0)).toBe(0)
+    expect(computeSellerEarnings(DEFAULT_ECONOMICS, 2, 6.0, 0)).toBe(0)
   })
 
   it('computes earnings for grade 2 at price 6: (6-4.6) = 1.4 for 1 unit', () => {
-    expect(computeSellerEarnings(DEFAULT_SELLER_FIRST_COSTS, 2, 6.0, 1)).toBeCloseTo(1.4)
+    expect(computeSellerEarnings(DEFAULT_ECONOMICS, 2, 6.0, 1)).toBeCloseTo(1.4)
   })
 
   it('computes earnings for 2 units: (6-4.6) + (6-5.6) = 1.4 + 0.4 = 1.8', () => {
-    expect(computeSellerEarnings(DEFAULT_SELLER_FIRST_COSTS, 2, 6.0, 2)).toBeCloseTo(1.8)
+    expect(computeSellerEarnings(DEFAULT_ECONOMICS, 2, 6.0, 2)).toBeCloseTo(1.8)
   })
 })
 

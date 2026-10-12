@@ -30,7 +30,7 @@ function computeCurrentRoundMetrics(session: Session, viewer: Viewer): RoundMetr
   const decided = sellers.map(s => {
     const d = session.currentSellerDecisions[s.id]
     return d?.price !== undefined
-      ? { grade: d.grade!, price: d.price, unitsOffered: d.unitsOffered ?? session.maxSellerUnits, unitsSold: d.unitsSold ?? 0, earnings: computeSellerEarnings(session.economics.sellerFirstCosts, d.grade!, d.price, d.unitsSold ?? 0) }
+      ? { grade: d.grade!, price: d.price, unitsOffered: d.unitsOffered ?? session.maxSellerUnits, unitsSold: d.unitsSold ?? 0, earnings: computeSellerEarnings(session.economics, d.grade!, d.price, d.unitsSold ?? 0) }
       : null
   }).filter((d): d is NonNullable<typeof d> => d !== null)
 
@@ -94,7 +94,7 @@ function maskedBuyerDecisions(
 function maskedEconomics(session: Session, viewer: Viewer): PublicEconomics {
   if (viewer.kind === 'admin') return session.economics
   if (viewer.kind === 'player' && viewer.player.role === 'buyer') return { buyerValues: session.economics.buyerValues }
-  if (viewer.kind === 'player' && viewer.player.role === 'seller') return { sellerFirstCosts: session.economics.sellerFirstCosts }
+  if (viewer.kind === 'player' && viewer.player.role === 'seller') return { sellerFirstCosts: session.economics.sellerFirstCosts, unitCostStep: session.economics.unitCostStep }
   return {}
 }
 

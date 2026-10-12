@@ -4,21 +4,25 @@ export type InfoMode = 'full' | 'asymmetric'
 export type Role = 'seller' | 'buyer'
 
 // Per-session economics — configurable by the host at session.create (and while
-// still in 'lobby', like maxSellerUnits/totalRounds). The per-unit cost step
-// beyond the first unit is NOT part of this — it's a fixed rule of the game,
-// not a per-session parameter (UNIT_COST_STEP in shared/constants.ts).
+// still in 'lobby', like maxSellerUnits/totalRounds). unitCostStep is a
+// deliberate deviation from Holt & Sherman (1999), where it's a fixed +$1
+// rule: here the host can set it per session instead.
 export interface EconomicsConfig {
   buyerValues: Record<Grade, number>
   sellerFirstCosts: Record<Grade, number>
+  unitCostStep: number
 }
 
 // Viewer-masked view of EconomicsConfig — mirrors the private-information split
 // in the paper's own instructions ("do not reveal the private information
 // tables"): buyers only ever learn their own values, sellers only their own
-// costs, and only the admin (running the debrief) sees both.
+// costs, and only the admin (running the debrief) sees both. unitCostStep
+// travels with sellerFirstCosts — a seller needs both to know what their
+// next unit costs.
 export interface PublicEconomics {
   buyerValues?: Record<Grade, number>
   sellerFirstCosts?: Record<Grade, number>
+  unitCostStep?: number
 }
 
 export interface Player {
