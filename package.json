@@ -12,6 +12,7 @@
     "test:all": "npm test && npm run test:worker",
     "deploy:dry-run": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
+    "load-test": "node scripts/load-test.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {
