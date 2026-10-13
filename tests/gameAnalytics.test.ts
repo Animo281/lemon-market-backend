@@ -176,10 +176,16 @@ describe('buildDemandCurve', () => {
 
 describe('computeRoundMetrics', () => {
   it('computes all fields for a simple round', () => {
+    // One entry per joined player (sellerDecisions/buyerDecisions always
+    // mirror playersByRole in production — see gameLogic.ts computeRoundResult),
+    // matching baseSession's 2 sellers / 3 buyers so theoreticalMaxSurplus
+    // (now derived from these arrays' lengths, not session.numSellers/numBuyers)
+    // still comes out to the fully-occupied-session figure below.
     const sellerDecisions = [
       { grade: 2 as const, price: 6.0, unitsOffered: 2, unitsSold: 1, earnings: 1.4 },
+      { grade: 1 as const, price: 3.0, unitsOffered: 0, unitsSold: 0, earnings: 0 },
     ]
-    const buyerDecisions = [{ earnings: 2.8 }]
+    const buyerDecisions = [{ earnings: 2.8 }, { earnings: 0 }, { earnings: 0 }]
     const metrics = computeRoundMetrics(baseSession, sellerDecisions, buyerDecisions, 'full', 4.2)
 
     expect(metrics.transactions).toBe(1)

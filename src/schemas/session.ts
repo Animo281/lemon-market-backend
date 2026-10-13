@@ -42,7 +42,7 @@ export const createSessionSchema = z.object({
 })
 
 export const joinSessionSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().trim().min(1).max(40),
   role: z.enum(['seller', 'buyer']),
   slotIndex: z.number().int().min(0),
 })

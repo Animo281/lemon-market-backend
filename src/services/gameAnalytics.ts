@@ -96,7 +96,9 @@ export function computeRoundMetrics(
 ): RoundMetrics {
   const grades = sellerDecisions.map(sd => sd.grade)
   const supplyCurve = buildSupplyCurve(sellerDecisions)
-  const demandCurve = buildDemandCurve(session.economics.buyerValues, grades, infoMode, session.numBuyers)
+  // Use the players who actually joined, not the configured numSellers/numBuyers —
+  // otherwise unfilled slots understate efficiency and skew the demand curve.
+  const demandCurve = buildDemandCurve(session.economics.buyerValues, grades, infoMode, buyerDecisions.length)
 
   const totalSellerProfit = sellerDecisions.reduce((s, sd) => s + sd.earnings, 0)
   const totalBuyerProfit = buyerDecisions.reduce((s, bd) => s + bd.earnings, 0)
@@ -109,7 +111,7 @@ export function computeRoundMetrics(
     ? txPrices.reduce((s, p) => s + p, 0) / txPrices.length
     : null
 
-  const maxSurplus = theoreticalMaxSurplus(session.economics, session.numSellers, session.maxSellerUnits, session.numBuyers)
+  const maxSurplus = theoreticalMaxSurplus(session.economics, sellerDecisions.length, session.maxSellerUnits, buyerDecisions.length)
   const efficiency = maxSurplus > 0 ? totalSurplus / maxSurplus : 0
   const equilibrium = findEquilibrium(supplyCurve, demandCurve)
 
