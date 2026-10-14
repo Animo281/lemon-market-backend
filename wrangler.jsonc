@@ -24,5 +24,8 @@
         "class_name": "SessionDurableObject"
       }
     ]
+  },
+  "limits": {
+    "cpu_ms": 50
   }
 }
