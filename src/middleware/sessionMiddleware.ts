@@ -3,6 +3,7 @@ import { SessionRepository } from '../repositories/sessionRepository'
 import { HttpError } from '../http/httpError'
 import { Session, Role, Player } from '../shared/types'
 import { findPlayerByToken, resolveViewer as resolveViewerForToken, Viewer } from '../shared/viewer'
+import { expireTurnIfNeeded } from '../services/sessionService'
 
 declare global {
   namespace Express {
@@ -18,6 +19,9 @@ export function createSessionMiddleware(repo: SessionRepository) {
   function loadSession(req: Request, _res: Response, next: NextFunction): void {
     const session = repo.getByCode(req.params.code)
     if (!session) throw new HttpError(404, 'Session nicht gefunden — Code prüfen.')
+    // Lazily resolve an expired buyer turn before the request is handled —
+    // see sessionService.expireTurnIfNeeded for why there's no scheduled job.
+    if (expireTurnIfNeeded(session)) repo.save(session)
     req.session = session
     next()
   }

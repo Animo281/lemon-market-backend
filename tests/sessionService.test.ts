@@ -3,7 +3,8 @@ import { createMemoryRepository } from '../src/repositories/sessionRepository'
 import * as service from '../src/services/sessionService'
 import { HttpError } from '../src/http/httpError'
 import { SessionRepository } from '../src/repositories/sessionRepository'
-import { getCurrentPlayerId } from '../src/services/gameAnalytics'
+import { activeBuyerIds } from '../src/lib/gameLogic'
+import { BUYER_GROUP_SIZE } from '../src/shared/constants'
 
 let repo: SessionRepository
 
@@ -158,17 +159,26 @@ describe('kickPlayer', () => {
   })
 })
 
-describe('skipCurrentBuyer', () => {
+describe('skipBuyer', () => {
   it('throws 400 outside market phase', () => {
     const session = service.createSession(repo, 1, 1)
     service.joinSession(repo, session, 'S', 'seller', 0)
-    service.joinSession(repo, session, 'B', 'buyer', 0)
+    const { player: buyer } = service.joinSession(repo, session, 'B', 'buyer', 0)
     service.startGame(repo, session)
     expect(session.phase).toBe('seller-input')
-    expect(() => service.skipCurrentBuyer(repo, session)).toThrowError(HttpError)
+    expect(() => service.skipBuyer(repo, session, buyer.id)).toThrowError(HttpError)
   })
 
-  it('writes null-sellerId decision for current buyer and advances to round-end when last', () => {
+  it('throws 400 for a buyer who is not currently active', () => {
+    const session = service.createSession(repo, 1, 1)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B', 'buyer', 0)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+    expect(() => service.skipBuyer(repo, session, 'nonexistent')).toThrowError(HttpError)
+  })
+
+  it('writes null-sellerId decision for the given buyer and advances to round-end when last', () => {
     const session = service.createSession(repo, 1, 1)
     const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
     const { player: buyer } = service.joinSession(repo, session, 'B', 'buyer', 0)
@@ -176,99 +186,107 @@ describe('skipCurrentBuyer', () => {
     service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
     expect(session.phase).toBe('market')
 
-    service.skipCurrentBuyer(repo, session)
+    service.skipBuyer(repo, session, buyer.id)
     expect(session.currentBuyerDecisions[buyer.id]).toBeDefined()
     expect(session.currentBuyerDecisions[buyer.id].sellerId).toBeNull()
     expect(session.phase).toBe('round-end')
   })
 })
 
-describe('currentBuyerIndex advances (bug: used to stay stuck at buyerQueue[0])', () => {
-  it('currentPlayerId moves to the next undecided buyer after a decision', () => {
-    const session = service.createSession(repo, 1, 2)
+describe('buyer groups (BUYER_GROUP_SIZE concurrent buyers, then the next group)', () => {
+  // 4 buyers with BUYER_GROUP_SIZE=3: group 1 is the first 3 in buyerQueue,
+  // group 2 is just the 4th — enough to exercise a group boundary.
+  function setUp4Buyers() {
+    const session = service.createSession(repo, 1, 4)
     const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
-    service.joinSession(repo, session, 'B1', 'buyer', 0)
-    service.joinSession(repo, session, 'B2', 'buyer', 1)
+    for (let i = 0; i < 4; i++) service.joinSession(repo, session, `B${i}`, 'buyer', i)
     service.startGame(repo, session)
     service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
     expect(session.phase).toBe('market')
+    return session
+  }
 
-    const [first, second] = session.buyerQueue
-    expect(getCurrentPlayerId(session)).toBe(first)
-
-    service.submitBuyerDecision(repo, session, first, null)
-    expect(getCurrentPlayerId(session)).toBe(second)
+  it('the whole first group is active at once, the next group is not', () => {
+    const session = setUp4Buyers()
+    const [g1a, g1b, g1c, g2a] = session.buyerQueue
+    expect(activeBuyerIds(session)).toEqual([g1a, g1b, g1c])
+    expect(activeBuyerIds(session)).not.toContain(g2a)
   })
 
-  it('skipCurrentBuyer skips whoever is actually up, not always buyerQueue[0]', () => {
-    const session = service.createSession(repo, 1, 3)
-    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
-    service.joinSession(repo, session, 'B1', 'buyer', 0)
-    service.joinSession(repo, session, 'B2', 'buyer', 1)
-    service.joinSession(repo, session, 'B3', 'buyer', 2)
-    service.startGame(repo, session)
-    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
-
-    const [first, second, third] = session.buyerQueue
-    service.submitBuyerDecision(repo, session, first, null)
-    expect(getCurrentPlayerId(session)).toBe(second)
-
-    // Before the fix this threw "Current buyer already submitted" because
-    // currentBuyerIndex never advanced past 0.
-    service.skipCurrentBuyer(repo, session)
-    expect(session.currentBuyerDecisions[second].sellerId).toBeNull()
-    expect(getCurrentPlayerId(session)).toBe(third)
+  it('the active group only shrinks as its members decide — no early pull-in from the next group', () => {
+    const session = setUp4Buyers()
+    const [g1a, g1b, g1c] = session.buyerQueue
+    service.submitBuyerDecision(repo, session, g1a, null)
+    expect(activeBuyerIds(session)).toEqual([g1b, g1c])
   })
 
-  it('kicking the current buyer mid-round moves the index to the next open buyer', () => {
-    const session = service.createSession(repo, 1, 3)
-    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
-    service.joinSession(repo, session, 'B1', 'buyer', 0)
-    service.joinSession(repo, session, 'B2', 'buyer', 1)
-    service.joinSession(repo, session, 'B3', 'buyer', 2)
-    service.startGame(repo, session)
-    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
-
-    const [first, second, third] = session.buyerQueue
-    service.submitBuyerDecision(repo, session, first, null)
-    expect(getCurrentPlayerId(session)).toBe(second)
-
-    service.kickPlayer(repo, session, second)
-    expect(getCurrentPlayerId(session)).toBe(third)
+  it('moves to the next group once the whole current group has decided (bug: used to stay stuck)', () => {
+    const session = setUp4Buyers()
+    const [g1a, g1b, g1c, g2a] = session.buyerQueue
+    service.submitBuyerDecision(repo, session, g1a, null)
+    service.submitBuyerDecision(repo, session, g1b, null)
+    expect(activeBuyerIds(session)).toEqual([g1c])
+    service.submitBuyerDecision(repo, session, g1c, null)
+    expect(activeBuyerIds(session)).toEqual([g2a])
   })
 
-  it('currentPlayerId is null once every buyer has decided', () => {
-    const session = service.createSession(repo, 1, 2)
-    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
-    service.joinSession(repo, session, 'B1', 'buyer', 0)
-    service.joinSession(repo, session, 'B2', 'buyer', 1)
-    service.startGame(repo, session)
-    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+  it('skipBuyer skips whoever is actually active, not just the first in the group', () => {
+    const session = setUp4Buyers()
+    const [g1a, g1b, g1c] = session.buyerQueue
+    service.submitBuyerDecision(repo, session, g1a, null)
+    service.skipBuyer(repo, session, g1b)
+    expect(session.currentBuyerDecisions[g1b].sellerId).toBeNull()
+    expect(activeBuyerIds(session)).toEqual([g1c])
+  })
 
-    for (const id of session.buyerQueue) {
+  it('kicking an active buyer recomputes the group — chunk boundaries shift with the shorter queue, pulling the next buyer in to keep the group full', () => {
+    const session = setUp4Buyers()
+    const [g1a, g1b, g1c, g2a] = session.buyerQueue
+    service.submitBuyerDecision(repo, session, g1a, null)
+    service.kickPlayer(repo, session, g1b)
+    expect(activeBuyerIds(session)).toEqual([g1c, g2a])
+  })
+
+  it('the active group is empty once every buyer has decided', () => {
+    const session = setUp4Buyers()
+    for (const id of [...session.buyerQueue]) {
       service.submitBuyerDecision(repo, session, id, null)
     }
     expect(session.phase).toBe('round-end')
-    expect(getCurrentPlayerId(session)).toBeNull()
+    expect(activeBuyerIds(session)).toEqual([])
   })
 })
 
-describe('submitBuyerDecision enforces the drawn-by-lot order (paper: buyers "shop one at a time")', () => {
-  it('rejects a buyer who is not currentPlayerId', () => {
-    const session = service.createSession(repo, 1, 2)
+describe('submitBuyerDecision enforces the drawn-by-lot order (paper: buyers "shop" in groups)', () => {
+  it('rejects a buyer from a later group', () => {
+    const session = service.createSession(repo, 1, 4)
     const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
-    service.joinSession(repo, session, 'B1', 'buyer', 0)
-    service.joinSession(repo, session, 'B2', 'buyer', 1)
+    for (let i = 0; i < 4; i++) service.joinSession(repo, session, `B${i}`, 'buyer', i)
     service.startGame(repo, session)
     service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
 
-    const [first, second] = session.buyerQueue
-    expect(() => service.submitBuyerDecision(repo, session, second, null)).toThrowError(HttpError)
-    expect(session.currentBuyerDecisions[second]).toBeUndefined()
+    const [g1a, g1b, g1c, g2a] = session.buyerQueue
+    expect(() => service.submitBuyerDecision(repo, session, g2a, null)).toThrowError(HttpError)
+    expect(session.currentBuyerDecisions[g2a]).toBeUndefined()
 
-    // The rightful buyer still goes through, and the turn then passes on.
+    // Once the whole first group has gone through, the next group's turn comes.
+    service.submitBuyerDecision(repo, session, g1a, null)
+    service.submitBuyerDecision(repo, session, g1b, null)
+    service.submitBuyerDecision(repo, session, g1c, null)
+    service.submitBuyerDecision(repo, session, g2a, null)
+    expect(session.phase).toBe('round-end')
+  })
+
+  it('members of the same group may decide in any order', () => {
+    const session = service.createSession(repo, 1, BUYER_GROUP_SIZE)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    for (let i = 0; i < BUYER_GROUP_SIZE; i++) service.joinSession(repo, session, `B${i}`, 'buyer', i)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+
+    const [first, second, third] = session.buyerQueue
+    service.submitBuyerDecision(repo, session, third, null)
     service.submitBuyerDecision(repo, session, first, null)
-    expect(getCurrentPlayerId(session)).toBe(second)
     service.submitBuyerDecision(repo, session, second, null)
     expect(session.phase).toBe('round-end')
   })
@@ -312,5 +330,102 @@ describe('forceAdvanceFromSellerInput', () => {
     service.forceAdvanceFromSellerInput(repo, session)
     expect(session.currentSellerDecisions[s1.id]?.grade).toBe(3)
     expect(session.currentSellerDecisions[s1.id]?.price).toBe(12.0)
+  })
+})
+
+describe('turnDeadline', () => {
+  it('is set when the market phase opens, using the configured turnDurationSeconds', () => {
+    const session = service.createSession(repo, 1, 1, undefined, undefined, undefined, undefined, 45)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B', 'buyer', 0)
+    service.startGame(repo, session)
+    const before = Date.now()
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+    expect(session.phase).toBe('market')
+    expect(session.turnDeadline).not.toBeNull()
+    expect(session.turnDeadline! - before).toBeGreaterThan(44_000)
+    expect(session.turnDeadline! - before).toBeLessThanOrEqual(45_000)
+  })
+
+  it('is cleared once the round ends', () => {
+    const session = service.createSession(repo, 1, 1)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    const { player: buyer } = service.joinSession(repo, session, 'B', 'buyer', 0)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+    service.submitBuyerDecision(repo, session, buyer.id, null)
+    expect(session.phase).toBe('round-end')
+    expect(session.turnDeadline).toBeNull()
+  })
+
+  it('does not reset while the same group is still deciding', () => {
+    const session = service.createSession(repo, 1, 4)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    for (let i = 0; i < 4; i++) service.joinSession(repo, session, `B${i}`, 'buyer', i)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+    const [g1a, g1b] = session.buyerQueue
+    const deadlineAfterGroupStart = session.turnDeadline
+
+    service.submitBuyerDecision(repo, session, g1a, null)
+    expect(session.turnDeadline).toBe(deadlineAfterGroupStart)
+    service.submitBuyerDecision(repo, session, g1b, null)
+    expect(session.turnDeadline).toBe(deadlineAfterGroupStart)
+  })
+})
+
+describe('expireTurnIfNeeded', () => {
+  it('does nothing before the deadline, outside market, or once the whole round is decided', () => {
+    const session = service.createSession(repo, 1, 1)
+    service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B', 'buyer', 0)
+    service.startGame(repo, session)
+    expect(service.expireTurnIfNeeded(session)).toBe(false) // seller-input, no deadline yet
+  })
+
+  it('auto-skips the whole active group once its deadline has passed, and starts the next group\'s timer', () => {
+    const session = service.createSession(repo, 1, 4, undefined, undefined, undefined, undefined, 10)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    for (let i = 0; i < 4; i++) service.joinSession(repo, session, `B${i}`, 'buyer', i)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+    const [g1a, g1b, g1c, g2a] = session.buyerQueue
+
+    expect(service.expireTurnIfNeeded(session)).toBe(false) // still well within the 10s window
+
+    const realNow = Date.now
+    try {
+      Date.now = () => realNow() + 11_000
+      expect(service.expireTurnIfNeeded(session)).toBe(true)
+    } finally {
+      Date.now = realNow
+    }
+
+    expect(session.currentBuyerDecisions[g1a].sellerId).toBeNull()
+    expect(session.currentBuyerDecisions[g1b].sellerId).toBeNull()
+    expect(session.currentBuyerDecisions[g1c].sellerId).toBeNull()
+    expect(session.currentBuyerDecisions[g2a]).toBeUndefined()
+    expect(activeBuyerIds(session)).toEqual([g2a])
+    expect(session.turnDeadline).not.toBeNull()
+  })
+
+  it('ends the round when the expiring group was the last one', () => {
+    const session = service.createSession(repo, 1, 1, undefined, undefined, undefined, undefined, 10)
+    const { player: seller } = service.joinSession(repo, session, 'S', 'seller', 0)
+    service.joinSession(repo, session, 'B', 'buyer', 0)
+    service.startGame(repo, session)
+    service.submitSellerDecision(repo, session, seller.id, 2, 6.0)
+
+    const realNow = Date.now
+    try {
+      Date.now = () => realNow() + 11_000
+      expect(service.expireTurnIfNeeded(session)).toBe(true)
+    } finally {
+      Date.now = realNow
+    }
+
+    expect(session.phase).toBe('round-end')
+    expect(session.turnDeadline).toBeNull()
+    expect(session.results).toHaveLength(1)
   })
 })

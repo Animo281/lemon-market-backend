@@ -33,9 +33,26 @@ export const DEFAULT_MAX_SELLER_UNITS = 2
 export const MAX_SELLERS_LIMIT = 12
 export const MAX_BUYERS_LIMIT = 24
 
+// Market phase: buyers act in small groups instead of strictly one at a
+// time, so a classroom of up to 24 buyers doesn't bottleneck on a single
+// queue. Fixed for now (not per-session configurable) to keep the surface
+// small — later buyers in the next group still see which stands already
+// sold out, partially preserving the paper's "later buyers see less"
+// mechanic while cutting wait time roughly by this factor.
+export const BUYER_GROUP_SIZE = 3
+
+// Per-turn timer: the admin sets the duration at session.create (like
+// maxSellerUnits), a group's deadline resets whenever a *new* group starts
+// (not on every individual decision) — see sessionService.checkPhaseTransition.
+export const DEFAULT_TURN_DURATION_SECONDS = 30
+export const MIN_TURN_DURATION_SECONDS = 10
+export const MAX_TURN_DURATION_SECONDS = 180
+
 export const LIMITS = Object.freeze({
   maxSellerUnits: MAX_SELLER_UNITS_LIMIT,
   maxRounds: MAX_ROUNDS_LIMIT,
   maxSellers: MAX_SELLERS_LIMIT,
   maxBuyers: MAX_BUYERS_LIMIT,
+  minTurnDurationSeconds: MIN_TURN_DURATION_SECONDS,
+  maxTurnDurationSeconds: MAX_TURN_DURATION_SECONDS,
 })

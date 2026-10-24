@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
   MAX_SELLER_UNITS_LIMIT, MAX_ROUNDS_LIMIT, DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS,
   MAX_SELLERS_LIMIT, MAX_BUYERS_LIMIT, DEFAULT_ECONOMICS,
+  MIN_TURN_DURATION_SECONDS, MAX_TURN_DURATION_SECONDS, DEFAULT_TURN_DURATION_SECONDS,
 } from '../shared/constants'
 import { Grade } from '../shared/types'
 
@@ -39,6 +40,7 @@ export const createSessionSchema = z.object({
   maxSellerUnits: z.number().int().min(1).max(MAX_SELLER_UNITS_LIMIT).default(DEFAULT_MAX_SELLER_UNITS),
   totalRounds: z.number().int().min(1).max(MAX_ROUNDS_LIMIT).default(DEFAULT_TOTAL_ROUNDS),
   economics: economicsSchema.default(DEFAULT_ECONOMICS),
+  turnDurationSeconds: z.number().int().min(MIN_TURN_DURATION_SECONDS).max(MAX_TURN_DURATION_SECONDS).default(DEFAULT_TURN_DURATION_SECONDS),
 })
 
 export const joinSessionSchema = z.object({
@@ -51,6 +53,7 @@ export const configSessionSchema = z.object({
   maxSellerUnits: z.number().int().min(1).max(MAX_SELLER_UNITS_LIMIT).optional(),
   totalRounds: z.number().int().min(1).max(MAX_ROUNDS_LIMIT).optional(),
   economics: economicsSchema.optional(),
+  turnDurationSeconds: z.number().int().min(MIN_TURN_DURATION_SECONDS).max(MAX_TURN_DURATION_SECONDS).optional(),
 })
 
 export const sellerDecisionSchema = z.object({
@@ -61,4 +64,8 @@ export const sellerDecisionSchema = z.object({
 
 export const buyerDecisionSchema = z.object({
   sellerId: z.string().nullable(),
+})
+
+export const skipBuyerSchema = z.object({
+  buyerId: z.string().min(1),
 })

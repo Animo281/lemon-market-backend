@@ -6,8 +6,8 @@ import * as service from '../services/sessionService'
 export function createSessionController(repo: SessionRepository) {
   return {
     create(req: Request, res: Response): void {
-      const { numSellers, numBuyers, maxSellerUnits, totalRounds, economics } = req.body
-      const session = service.createSession(repo, numSellers, numBuyers, maxSellerUnits, totalRounds, undefined, economics)
+      const { numSellers, numBuyers, maxSellerUnits, totalRounds, economics, turnDurationSeconds } = req.body
+      const session = service.createSession(repo, numSellers, numBuyers, maxSellerUnits, totalRounds, undefined, economics, turnDurationSeconds)
       res.json({ code: session.code, adminToken: session.adminToken, sessionId: session.id })
     },
 
@@ -26,8 +26,8 @@ export function createSessionController(repo: SessionRepository) {
     },
 
     config(req: Request, res: Response): void {
-      const { maxSellerUnits, totalRounds, economics } = req.body
-      res.json(toPublic(service.updateConfig(repo, req.session!, maxSellerUnits, totalRounds, economics), req.viewer))
+      const { maxSellerUnits, totalRounds, economics, turnDurationSeconds } = req.body
+      res.json(toPublic(service.updateConfig(repo, req.session!, maxSellerUnits, totalRounds, economics, turnDurationSeconds), req.viewer))
     },
 
     sellerDecision(req: Request, res: Response): void {
@@ -57,7 +57,8 @@ export function createSessionController(repo: SessionRepository) {
     },
 
     skipBuyer(req: Request, res: Response): void {
-      res.json(toPublic(service.skipCurrentBuyer(repo, req.session!), req.viewer))
+      const { buyerId } = req.body
+      res.json(toPublic(service.skipBuyer(repo, req.session!, buyerId), req.viewer))
     },
 
     forceAdvance(req: Request, res: Response): void {

@@ -171,6 +171,54 @@ describe('Worker API with SQLite Durable Objects', () => {
     expect(ended.body.currentRound).toBe(1)
   })
 
+  it('buyers act in groups (activeBuyerIds) and the admin can skip one of them by id', async () => {
+    const created = await createSession({ numBuyers: 2 })
+    const sellerJoin = await post<JoinResponse>(`/api/session/${created.code}/join`, {
+      name: 'Verkäuferin', role: 'seller', slotIndex: 0,
+    })
+    const b1 = await post<JoinResponse>(`/api/session/${created.code}/join`, {
+      name: 'K1', role: 'buyer', slotIndex: 0,
+    })
+    const b2 = await post<JoinResponse>(`/api/session/${created.code}/join`, {
+      name: 'K2', role: 'buyer', slotIndex: 1,
+    })
+    await post(`/api/session/${created.code}/start`, undefined, created.adminToken)
+    await post(
+      `/api/session/${created.code}/seller-decision`,
+      { grade: 2, price: 6, unitsOffered: 2 },
+      sellerJoin.body.playerToken,
+    )
+
+    const state = await request(`/api/session/${created.code}`, { headers: { 'x-token': created.adminToken } })
+    const { activeBuyerIds } = await responseJson<{ activeBuyerIds: string[] }>(state)
+    // Below BUYER_GROUP_SIZE buyers total — both are active at once.
+    expect(activeBuyerIds.sort()).toEqual([b1.body.playerId, b2.body.playerId].sort())
+
+    expect((await post(`/api/session/${created.code}/skip-buyer`, { buyerId: b1.body.playerId }, 'wrong')).response.status).toBe(403)
+
+    const skipped = await post<SessionResponse>(
+      `/api/session/${created.code}/skip-buyer`,
+      { buyerId: b1.body.playerId },
+      created.adminToken,
+    )
+    expect(skipped.response.status).toBe(200)
+
+    const skippedAgain = await post(
+      `/api/session/${created.code}/skip-buyer`,
+      { buyerId: b1.body.playerId },
+      created.adminToken,
+    )
+    expect(skippedAgain.response.status).toBe(400) // no longer active, already decided
+
+    const final = await post<SessionResponse>(
+      `/api/session/${created.code}/skip-buyer`,
+      { buyerId: b2.body.playerId },
+      created.adminToken,
+    )
+    expect(final.response.status).toBe(200)
+    expect(final.body.phase).toBe('round-end')
+  })
+
   it('returns JSON errors for validation, malformed JSON, unknown codes, and API misses', async () => {
     const invalid = await post<{ issues?: unknown[] }>('/api/session', { numSellers: 0, numBuyers: 1 })
     expect(invalid.response.status).toBe(400)

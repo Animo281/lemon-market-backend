@@ -104,7 +104,10 @@ export interface Session {
   infoMode: InfoMode
   players: Player[]
   buyerQueue: string[]
-  currentBuyerIndex: number
+  // epoch ms deadline for the current buyer group's turn; null outside the
+  // market phase. See sessionService.expireTurnIfNeeded / checkPhaseTransition.
+  turnDeadline: number | null
+  turnDurationSeconds: number
   currentSellerDecisions: Record<string, Partial<SellerDecision>>
   currentBuyerDecisions: Record<string, BuyerDecision>
   results: RoundResult[]
@@ -112,7 +115,9 @@ export interface Session {
 
 export interface PublicSession extends Omit<Session, 'adminToken' | 'players' | 'economics'> {
   players: PublicPlayer[]
-  currentPlayerId: string | null
+  // Up to BUYER_GROUP_SIZE buyer ids who may currently submit a decision —
+  // replaces the old single currentPlayerId now that buyers act in groups.
+  activeBuyerIds: string[]
   availableOffers: AvailableOffer[]
   economics: PublicEconomics
   limits: typeof LIMITS

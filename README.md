@@ -117,7 +117,7 @@ Computed live during `market`/`round-end` (`currentRoundMetrics`) and stored per
 `toPublic()` (`src/mappers/toPublic.ts`) takes the internal `Session` and:
 
 - **removes** `adminToken` and every player's `token` (never sent to clients)
-- **adds** `currentPlayerId` (whose turn it is in `market`, else `null`), `availableOffers`, `economics` (the session's own `buyerValues`/`sellerFirstCosts`, viewer-masked — see below), `limits`, and `currentRoundMetrics`
+- **adds** `activeBuyerIds` (who may currently act in `market`, else `[]` — see "Buyer shopping order" below), `availableOffers`, `economics` (the session's own `buyerValues`/`sellerFirstCosts`, viewer-masked — see below), `limits`, and `currentRoundMetrics`
 
 ## Routes
 
@@ -220,13 +220,24 @@ Clients that want their own grade/earnings reflected back (a seller viewing thei
 
 ## Buyer shopping order
 
-Buyers are drawn into a shuffled `buyerQueue` at the start of each round and must act in
-that order — `POST /buyer-decision` from anyone other than `getCurrentPlayerId(session)`
-is rejected with 400 ("Du bist noch nicht an der Reihe."). This matches the paper's
-procedure (buyers drawn by lot, shopping one at a time so later buyers see which stands
-already sold out) and closes what used to be a free-for-all: any buyer could act at any
-moment during `market`. `POST /skip-buyer` (admin) remains the way to unblock a round
-when the current buyer has disconnected.
+Buyers are drawn into a shuffled `buyerQueue` at the start of each round and act in small
+concurrent groups of `BUYER_GROUP_SIZE` (3, `shared/constants.ts`), group by group —
+`POST /buyer-decision` from anyone not in the current `activeBuyerIds` is rejected with
+400 ("Du bist noch nicht an der Reihe."). This is a relaxation of the paper's procedure
+(buyers drawn by lot, shopping strictly one at a time so later buyers see which stands
+already sold out): groups still go in order, so a later group still sees what the earlier
+groups sold out, just not with single-buyer granularity. `POST /skip-buyer` (admin) takes
+a `buyerId` and skips that one active buyer, e.g. to unblock a round when they've
+disconnected.
+
+Each group also gets a shared turn timer: `session.turnDurationSeconds` (admin-configurable
+at `POST /session` / `PATCH /:code/config`, default 30s) counts down from
+`session.turnDeadline` (epoch ms, `null` outside `market`). The deadline resets only when a
+*new* group starts, not on every individual decision. If it passes, the next request against
+the session (any request — see `expireTurnIfNeeded` in `sessionService.ts`) auto-skips every
+still-undecided member of the active group, same as the admin's manual skip. There's no
+scheduled job for this — it's checked lazily on request, which is enough given the ~1.5s
+client polling during `market`.
 
 ## Persistence
 
@@ -241,8 +252,9 @@ Session codes are 4 characters drawn uniformly from `A-Z0-9`, generated with up 
 - No rate limiting, no `helmet`, fully open CORS — acceptable for a single-instance classroom tool, not for a public deployment.
 - Toggling info mode while still in `lobby` has no effect: `startGame` always resets `infoMode` to `'full'`. The toggle isn't blocked in the lobby, so it can look like it did something when it didn't.
 - Buyer shopping order is now enforced server-side (see "Buyer shopping order" above), but
-  it's still 2-second polling underneath, not a push channel — a buyer whose turn just
-  started can wait up to ~2s to see the "Du bist dran" state flip.
+  it's still ~1.5s polling underneath during `market`, not a push channel — a buyer whose
+  turn just started, or a group whose timer just expired, can wait up to ~1.5s to see the
+  state flip.
 
 ## Tests
 

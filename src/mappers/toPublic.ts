@@ -1,13 +1,12 @@
 import { Session, PublicSession, PublicEconomics, RoundMetrics, SellerDecision, BuyerDecision } from '../shared/types'
 import {
-  getCurrentPlayerId,
   computeAvailableOffers,
   computeSellerEarnings,
   computeRoundMetrics,
 } from '../services/gameAnalytics'
 import { LIMITS } from '../shared/constants'
 import { Viewer } from '../shared/viewer'
-import { playersByRole } from '../lib/gameLogic'
+import { playersByRole, activeBuyerIds } from '../lib/gameLogic'
 
 // True exactly when the market board is still "live" and grades are supposed
 // to be hidden from buyers — i.e. when revealing anything grade-derived would
@@ -101,7 +100,7 @@ export function toPublic(session: Session, viewer: Viewer = { kind: 'anonymous' 
     players: session.players.map(({ token: _t, ...p }) => p),
     currentSellerDecisions: maskedSellerDecisions(session, viewer),
     currentBuyerDecisions: maskedBuyerDecisions(session, viewer),
-    currentPlayerId: getCurrentPlayerId(session),
+    activeBuyerIds: session.phase === 'market' ? activeBuyerIds(session) : [],
     availableOffers: computeAvailableOffers(session),
     economics: maskedEconomics(session, viewer),
     limits: LIMITS,

@@ -8,7 +8,6 @@ import {
   buildSupplyCurve,
   buildDemandCurve,
   computeRoundMetrics,
-  getCurrentPlayerId,
   computeAvailableOffers,
 } from '../src/services/gameAnalytics'
 import { Session } from '../src/shared/types'
@@ -27,7 +26,7 @@ const baseSession: Session = {
     { id: 'buy2', token: 't4', name: 'Dave', role: 'buyer', slotIndex: 1 },
     { id: 'buy3', token: 't5', name: 'Eve', role: 'buyer', slotIndex: 2 },
   ],
-  buyerQueue: ['buy1', 'buy2', 'buy3'], currentBuyerIndex: 1,
+  buyerQueue: ['buy1', 'buy2', 'buy3'], turnDeadline: null, turnDurationSeconds: 30,
   currentSellerDecisions: {
     sel1: { playerId: 'sel1', grade: 2, price: 6.0, unitsOffered: 2, unitsSold: 1, earnings: 0 },
     sel2: { playerId: 'sel2', grade: 1, price: 3.0, unitsOffered: 1, unitsSold: 0, earnings: 0 },
@@ -203,17 +202,6 @@ describe('computeRoundMetrics', () => {
     const zeroSession = { ...baseSession, numBuyers: 0 }
     const metrics = computeRoundMetrics(zeroSession, [], [], 'full', 0)
     expect(metrics.efficiency).toBe(0)
-  })
-})
-
-describe('getCurrentPlayerId', () => {
-  it('returns buyerQueue[currentBuyerIndex] in market phase', () => {
-    expect(getCurrentPlayerId(baseSession)).toBe('buy2')
-  })
-
-  it('returns null outside market phase', () => {
-    expect(getCurrentPlayerId({ ...baseSession, phase: 'seller-input' })).toBeNull()
-    expect(getCurrentPlayerId({ ...baseSession, phase: 'round-end' })).toBeNull()
   })
 })
 

@@ -10,6 +10,7 @@ import {
   createSessionSchema,
   joinSessionSchema,
   sellerDecisionSchema,
+  skipBuyerSchema,
 } from './schemas/session'
 import * as service from './services/sessionService'
 import { Player, Role, Session } from './shared/types'
@@ -191,6 +192,7 @@ export class SessionDurableObject extends DurableObject<Env> {
       input.totalRounds,
       input.code,
       input.economics,
+      input.turnDurationSeconds,
     )
     await this.ctx.storage.put('session', created)
     this.session = created
@@ -202,6 +204,14 @@ export class SessionDurableObject extends DurableObject<Env> {
     const code = match ? decodeURIComponent(match[1]).toUpperCase() : ''
     if (!this.session || code !== this.session.code) {
       throw new HttpError(404, 'Session nicht gefunden — Code prüfen.')
+    }
+
+    // Lazily resolve an expired buyer turn before dispatching — see
+    // sessionService.expireTurnIfNeeded. Persisted (even for GET) and done
+    // before the snapshot below, so a later error in this request can't roll
+    // it back.
+    if (service.expireTurnIfNeeded(this.session)) {
+      await this.ctx.storage.put('session', this.session)
     }
 
     const suffix = match?.[2] ?? ''
@@ -223,7 +233,7 @@ export class SessionDurableObject extends DurableObject<Env> {
       } else if (request.method === 'PATCH' && suffix === 'config') {
         requireAdmin(this.session, request)
         const body = await validatedBody(request, configSessionSchema)
-        payload = toPublic(service.updateConfig(repo, this.session, body.maxSellerUnits, body.totalRounds, body.economics), viewer)
+        payload = toPublic(service.updateConfig(repo, this.session, body.maxSellerUnits, body.totalRounds, body.economics, body.turnDurationSeconds), viewer)
       } else if (request.method === 'POST' && suffix === 'seller-decision') {
         const player = requirePlayer(this.session, request, 'seller')
         const body = await validatedBody(request, sellerDecisionSchema)
@@ -243,7 +253,8 @@ export class SessionDurableObject extends DurableObject<Env> {
         payload = toPublic(service.endGame(repo, this.session), viewer)
       } else if (request.method === 'POST' && suffix === 'skip-buyer') {
         requireAdmin(this.session, request)
-        payload = toPublic(service.skipCurrentBuyer(repo, this.session), viewer)
+        const body = await validatedBody(request, skipBuyerSchema)
+        payload = toPublic(service.skipBuyer(repo, this.session, body.buyerId), viewer)
       } else if (request.method === 'POST' && suffix === 'force-advance') {
         requireAdmin(this.session, request)
         payload = toPublic(service.forceAdvanceFromSellerInput(repo, this.session), viewer)
