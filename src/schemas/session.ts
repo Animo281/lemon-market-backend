@@ -3,6 +3,7 @@ import {
   MAX_SELLER_UNITS_LIMIT, MAX_ROUNDS_LIMIT, DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS,
   MAX_SELLERS_LIMIT, MAX_BUYERS_LIMIT, DEFAULT_ECONOMICS,
   MIN_TURN_DURATION_SECONDS, MAX_TURN_DURATION_SECONDS, DEFAULT_TURN_DURATION_SECONDS,
+  MAX_SELLER_PRICE,
 } from '../shared/constants'
 import { Grade } from '../shared/types'
 
@@ -58,7 +59,10 @@ export const configSessionSchema = z.object({
 
 export const sellerDecisionSchema = z.object({
   grade: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  price: z.number().positive(),
+  // The dynamic floor (must cover the chosen grade's production cost) can't
+  // live here — it depends on the session's own economics, which this static
+  // schema has no access to. Enforced in sessionService.submitSellerDecision.
+  price: z.number().positive().max(MAX_SELLER_PRICE),
   unitsOffered: z.number().int().min(1).optional(),
 })
 

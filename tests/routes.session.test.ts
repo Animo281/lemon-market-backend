@@ -264,6 +264,39 @@ describe('Validation', () => {
     expect(res.status).toBe(400)
   })
 
+  it('rejects a seller price above MAX_SELLER_PRICE (schema-level)', async () => {
+    const { body: { code, adminToken } } = await request(app)
+      .post('/api/session').send({ numSellers: 1, numBuyers: 1 })
+    const { body: { playerToken } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'S', role: 'seller', slotIndex: 0 })
+    await request(app).post(`/api/session/${code}/join`).send({ name: 'B', role: 'buyer', slotIndex: 0 })
+    await request(app).post(`/api/session/${code}/start`).set('x-token', adminToken)
+
+    const res = await request(app).post(`/api/session/${code}/seller-decision`)
+      .set('x-token', playerToken).send({ grade: 1, price: 41 })
+    expect(res.status).toBe(400)
+    expect(res.body.issues).toBeDefined()
+  })
+
+  it('rejects a seller price below the chosen grade\'s production cost (no selling at a loss)', async () => {
+    const { body: { code, adminToken } } = await request(app)
+      .post('/api/session').send({ numSellers: 1, numBuyers: 1 })
+    const { body: { playerToken } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'S', role: 'seller', slotIndex: 0 })
+    await request(app).post(`/api/session/${code}/join`).send({ name: 'B', role: 'buyer', slotIndex: 0 })
+    await request(app).post(`/api/session/${code}/start`).set('x-token', adminToken)
+
+    // Default economics: grade 3's first-unit cost is 11.0.
+    const res = await request(app).post(`/api/session/${code}/seller-decision`)
+      .set('x-token', playerToken).send({ grade: 3, price: 10.99 })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/Kosten/)
+
+    const accepted = await request(app).post(`/api/session/${code}/seller-decision`)
+      .set('x-token', playerToken).send({ grade: 3, price: 11.0 })
+    expect(accepted.status).toBe(200)
+  })
+
   it('rejects malformed JSON with 400, not 500', async () => {
     const res = await request(app)
       .post('/api/session')

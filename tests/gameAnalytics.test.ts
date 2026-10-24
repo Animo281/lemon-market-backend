@@ -6,6 +6,8 @@ import {
   theoreticalMaxSurplus,
   computeSellerEarnings,
   buildSupplyCurve,
+  buildSupplyCurvesByGrade,
+  countUnitsSoldByGrade,
   buildDemandCurve,
   computeRoundMetrics,
   computeAvailableOffers,
@@ -158,6 +160,28 @@ describe('buildSupplyCurve', () => {
   })
 })
 
+describe('buildSupplyCurvesByGrade', () => {
+  it('splits ask prices into one sorted curve per grade', () => {
+    const curves = buildSupplyCurvesByGrade([
+      { grade: 2, price: 5, unitsOffered: 2 },
+      { grade: 1, price: 3, unitsOffered: 1 },
+      { grade: 2, price: 4, unitsOffered: 1 },
+    ])
+    expect(curves).toEqual({ 1: [3], 2: [4, 5, 5], 3: [] })
+  })
+})
+
+describe('countUnitsSoldByGrade', () => {
+  it('sums unitsSold per grade, zero for grades with no sales', () => {
+    const tally = countUnitsSoldByGrade([
+      { grade: 3, unitsSold: 2 },
+      { grade: 3, unitsSold: 1 },
+      { grade: 1, unitsSold: 0 },
+    ])
+    expect(tally).toEqual({ 1: 0, 2: 0, 3: 3 })
+  })
+})
+
 describe('buildDemandCurve', () => {
   it('full info: repeats best-grade WTP for all buyers', () => {
     const curve = buildDemandCurve(DEFAULT_BUYER_VALUES, [2, 1], 'full', 3)
@@ -196,6 +220,8 @@ describe('computeRoundMetrics', () => {
     expect(metrics.efficiency).toBeCloseTo(4.2 / 11.6)
     expect(metrics.supplyCurve).toEqual([6, 6])
     expect(metrics.equilibrium).not.toBeNull()
+    expect(metrics.supplyCurveByGrade).toEqual({ 1: [], 2: [6, 6], 3: [] })
+    expect(metrics.unitsSoldByGrade).toEqual({ 1: 0, 2: 1, 3: 0 })
   })
 
   it('efficiency is 0 when theoreticalMax is 0', () => {

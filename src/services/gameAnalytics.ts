@@ -77,6 +77,27 @@ export function buildSupplyCurve(
   return prices.sort((a, b) => a - b)
 }
 
+// Same as buildSupplyCurve, split by grade — one step-curve per quality
+// instead of one combined curve (the "3 Angebotskurven" the graph now draws).
+export function buildSupplyCurvesByGrade(
+  sellerDecisions: Array<{ grade: Grade; price: number; unitsOffered: number }>,
+): Record<Grade, number[]> {
+  const result = { 1: [], 2: [], 3: [] } as Record<Grade, number[]>
+  for (const grade of [1, 2, 3] as Grade[]) {
+    result[grade] = buildSupplyCurve(sellerDecisions.filter(sd => sd.grade === grade))
+  }
+  return result
+}
+
+// Automatic per-round tally: how many units sold at each quality.
+export function countUnitsSoldByGrade(
+  sellerDecisions: Array<{ grade: Grade; unitsSold: number }>,
+): Record<Grade, number> {
+  const result = { 1: 0, 2: 0, 3: 0 } as Record<Grade, number>
+  for (const sd of sellerDecisions) result[sd.grade] += sd.unitsSold
+  return result
+}
+
 export function buildDemandCurve(
   buyerValues: Record<Grade, number>,
   grades: Grade[],
@@ -96,6 +117,8 @@ export function computeRoundMetrics(
 ): RoundMetrics {
   const grades = sellerDecisions.map(sd => sd.grade)
   const supplyCurve = buildSupplyCurve(sellerDecisions)
+  const supplyCurveByGrade = buildSupplyCurvesByGrade(sellerDecisions)
+  const unitsSoldByGrade = countUnitsSoldByGrade(sellerDecisions)
   // Use the players who actually joined, not the configured numSellers/numBuyers —
   // otherwise unfilled slots understate efficiency and skew the demand curve.
   const demandCurve = buildDemandCurve(session.economics.buyerValues, grades, infoMode, buyerDecisions.length)
@@ -124,7 +147,9 @@ export function computeRoundMetrics(
     efficiency,
     equilibrium,
     supplyCurve,
+    supplyCurveByGrade,
     demandCurve,
+    unitsSoldByGrade,
   }
 }
 

@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { Session, Player, Role, Grade, EconomicsConfig } from '../shared/types'
-import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS, DEFAULT_ECONOMICS, DEFAULT_TURN_DURATION_SECONDS } from '../shared/constants'
+import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS, DEFAULT_ECONOMICS, DEFAULT_TURN_DURATION_SECONDS, sellerCost } from '../shared/constants'
 import { SessionRepository } from '../repositories/sessionRepository'
 import { HttpError } from '../http/httpError'
 import { playersByRole, shuffledBuyerQueue, noPurchase, calculateBuyerEarnings, computeRoundResult, advanceRound, activeBuyerIds } from '../lib/gameLogic'
@@ -175,6 +175,13 @@ export function submitSellerDecision(
   unitsOffered?: number,
 ): Session {
   if (session.phase !== 'seller-input') throw new HttpError(400, 'Die Verkaufsphase ist vorbei — deine Entscheidung kommt jetzt zu spät.')
+
+  // No selling at a loss — the floor is this grade's own first-unit cost
+  // under the session's own economics, so it can't be a static schema check.
+  const minPrice = sellerCost(session.economics.sellerFirstCosts, grade, 0, session.economics.unitCostStep)
+  if (price < minPrice) {
+    throw new HttpError(400, `Preis darf nicht unter deinen Kosten liegen (mind. ${minPrice.toFixed(2)} €).`)
+  }
 
   const offered = Math.min(session.maxSellerUnits, Math.max(1, unitsOffered ?? session.maxSellerUnits))
   session.currentSellerDecisions[playerId] = { playerId, grade, price, unitsOffered: offered, unitsSold: 0 }

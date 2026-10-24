@@ -218,6 +218,10 @@ All error messages are German (the product's UI language) and are safe to show t
 
 Clients that want their own grade/earnings reflected back (a seller viewing their own board, a buyer after round-end) must send their `x-token` on `GET /:code`, not just on mutating calls.
 
+## Seller price range
+
+`POST /:code/seller-decision` enforces a price range instead of just "positive": a flat ceiling (`MAX_SELLER_PRICE`, `shared/constants.ts`, default 40) and a dynamic floor — the chosen grade's own first-unit production cost under the session's economics (`sellerCost(session.economics.sellerFirstCosts, grade, 0, session.economics.unitCostStep)`), so a seller can never submit at a loss. The ceiling is a static Zod check (`schemas/session.ts`); the floor can't be, since it depends on the session's own economics — it's checked in `sessionService.submitSellerDecision` and rejected with 400 ("Preis darf nicht unter deinen Kosten liegen…").
+
 ## Buyer shopping order
 
 Buyers are drawn into a shuffled `buyerQueue` at the start of each round and act in small
