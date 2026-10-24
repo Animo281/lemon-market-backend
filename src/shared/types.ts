@@ -67,8 +67,10 @@ export interface RoundMetrics {
   theoreticalMaxSurplus: number
   efficiency: number  // totalSurplus / theoreticalMaxSurplus, 0 if theoreticalMax is 0
   equilibrium: { qty: number; price: number } | null
-  supplyCurve: number[]  // ask prices sorted ascending
+  supplyCurve: number[]  // ask prices sorted ascending, all grades combined
+  supplyCurveByGrade: Record<Grade, number[]>  // same, split per quality — one curve each
   demandCurve: number[]  // wtp values sorted descending
+  unitsSoldByGrade: Record<Grade, number>  // automatic per-round tally
 }
 
 export interface RoundResult {

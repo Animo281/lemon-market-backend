@@ -48,6 +48,14 @@ export const DEFAULT_TURN_DURATION_SECONDS = 30
 export const MIN_TURN_DURATION_SECONDS = 10
 export const MAX_TURN_DURATION_SECONDS = 180
 
+// Feedback from a live classroom test: sellers were pricing arbitrarily far
+// above any buyer's value. A seller still must never price below their own
+// cost (checked dynamically against the chosen grade's cost in
+// sessionService.submitSellerDecision — that depends on the session's own
+// economics, so it can't live in the static Zod schema), but the ceiling is
+// a flat, configurable number.
+export const MAX_SELLER_PRICE = 40
+
 export const LIMITS = Object.freeze({
   maxSellerUnits: MAX_SELLER_UNITS_LIMIT,
   maxRounds: MAX_ROUNDS_LIMIT,
@@ -55,4 +63,5 @@ export const LIMITS = Object.freeze({
   maxBuyers: MAX_BUYERS_LIMIT,
   minTurnDurationSeconds: MIN_TURN_DURATION_SECONDS,
   maxTurnDurationSeconds: MAX_TURN_DURATION_SECONDS,
+  maxSellerPrice: MAX_SELLER_PRICE,
 })

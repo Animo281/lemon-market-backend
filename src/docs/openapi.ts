@@ -26,8 +26,10 @@ export const openApiSpec = {
           theoreticalMaxSurplus: { type: 'number' },
           efficiency: { type: 'number', description: 'totalSurplus / theoreticalMax (0–1)' },
           equilibrium: { type: 'object', nullable: true, properties: { qty: { type: 'integer' }, price: { type: 'number' } } },
-          supplyCurve: { type: 'array', items: { type: 'number' } },
+          supplyCurve: { type: 'array', items: { type: 'number' }, description: 'Ask prices sorted ascending, all grades combined.' },
+          supplyCurveByGrade: { type: 'object', description: 'Same, split per grade — {1: [...], 2: [...], 3: [...]}.', properties: { '1': { type: 'array', items: { type: 'number' } }, '2': { type: 'array', items: { type: 'number' } }, '3': { type: 'array', items: { type: 'number' } } } },
           demandCurve: { type: 'array', items: { type: 'number' } },
+          unitsSoldByGrade: { type: 'object', description: 'Automatic per-round tally of units sold per grade.', properties: { '1': { type: 'integer' }, '2': { type: 'integer' }, '3': { type: 'integer' } } },
         },
       },
       AvailableOffer: {
@@ -77,6 +79,7 @@ export const openApiSpec = {
               maxBuyers: { type: 'integer' },
               minTurnDurationSeconds: { type: 'integer' },
               maxTurnDurationSeconds: { type: 'integer' },
+              maxSellerPrice: { type: 'integer' },
             },
           },
           currentRoundMetrics: { $ref: '#/components/schemas/RoundMetrics', nullable: true },
@@ -191,7 +194,7 @@ export const openApiSpec = {
         security: [{ token: [] }],
         parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' } }],
         requestBody: { content: { 'application/json': { schema: { type: 'object', required: ['grade', 'price'], properties: {
-          grade: { type: 'integer', enum: [1, 2, 3] }, price: { type: 'number', exclusiveMinimum: 0 }, unitsOffered: { type: 'integer' },
+          grade: { type: 'integer', enum: [1, 2, 3] }, price: { type: 'number', exclusiveMinimum: 0, maximum: 40, description: 'Also enforced dynamically to be ≥ the chosen grade\'s production cost — see 400 response.' }, unitsOffered: { type: 'integer' },
         }}}}},
         responses: {
           200: { description: 'PublicSession', content: { 'application/json': { schema: { $ref: '#/components/schemas/PublicSession' } } } },
