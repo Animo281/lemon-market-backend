@@ -119,6 +119,47 @@ describe('Full game happy path', () => {
   })
 })
 
+describe('POST /:code/end-game', () => {
+  async function setupRoundEnd() {
+    const { body: { code, adminToken } } = await request(app)
+      .post('/api/session').send({ numSellers: 1, numBuyers: 1 })
+    const { body: { playerToken: sellerToken, playerId: sellerId } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'S', role: 'seller', slotIndex: 0 })
+    const { body: { playerToken: buyerToken } } = await request(app)
+      .post(`/api/session/${code}/join`).send({ name: 'B', role: 'buyer', slotIndex: 0 })
+    await request(app).post(`/api/session/${code}/start`).set('x-token', adminToken)
+    await request(app).post(`/api/session/${code}/seller-decision`)
+      .set('x-token', sellerToken).send({ grade: 2, price: 6.0 })
+    await request(app).post(`/api/session/${code}/buyer-decision`)
+      .set('x-token', buyerToken).send({ sellerId })
+    return { code, adminToken }
+  }
+
+  it('ends the game from round-end regardless of totalRounds', async () => {
+    const { code, adminToken } = await setupRoundEnd()
+    const res = await request(app).post(`/api/session/${code}/end-game`).set('x-token', adminToken)
+    expect(res.status).toBe(200)
+    expect(res.body.phase).toBe('game-end')
+  })
+
+  it('without admin token → 403', async () => {
+    const { code } = await setupRoundEnd()
+    const res = await request(app).post(`/api/session/${code}/end-game`)
+    expect(res.status).toBe(403)
+  })
+
+  it('outside round-end → 400', async () => {
+    const { body: { code, adminToken } } = await request(app)
+      .post('/api/session').send({ numSellers: 1, numBuyers: 1 })
+    await request(app).post(`/api/session/${code}/join`).send({ name: 'S', role: 'seller', slotIndex: 0 })
+    await request(app).post(`/api/session/${code}/join`).send({ name: 'B', role: 'buyer', slotIndex: 0 })
+    await request(app).post(`/api/session/${code}/start`).set('x-token', adminToken)
+
+    const res = await request(app).post(`/api/session/${code}/end-game`).set('x-token', adminToken)
+    expect(res.status).toBe(400)
+  })
+})
+
 describe('Admin: kick / skip-buyer / force-advance', () => {
   async function setupStartedGame() {
     const { body: { code, adminToken } } = await request(app)
