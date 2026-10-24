@@ -54,9 +54,11 @@ export const openApiSpec = {
           numBuyers: { type: 'integer' },
           maxSellerUnits: { type: 'integer' },
           totalRounds: { type: 'integer' },
+          turnDurationSeconds: { type: 'integer', description: 'Seconds a buyer group has to act before being auto-skipped.' },
+          turnDeadline: { type: 'integer', nullable: true, description: 'Epoch ms deadline for the current buyer group\'s turn; null outside the market phase.' },
           players: { type: 'array', items: { $ref: '#/components/schemas/PublicPlayer' } },
           results: { type: 'array', items: { $ref: '#/components/schemas/RoundResult' } },
-          currentPlayerId: { type: 'string', nullable: true, description: 'ID of the buyer whose turn it is (market phase only)' },
+          activeBuyerIds: { type: 'array', items: { type: 'string' }, description: 'Buyer ids who may currently submit a decision (market phase only) — buyers act in small concurrent groups, not strictly one at a time.' },
           availableOffers: { type: 'array', items: { $ref: '#/components/schemas/AvailableOffer' } },
           economics: {
             type: 'object',
@@ -73,6 +75,8 @@ export const openApiSpec = {
               maxRounds: { type: 'integer' },
               maxSellers: { type: 'integer' },
               maxBuyers: { type: 'integer' },
+              minTurnDurationSeconds: { type: 'integer' },
+              maxTurnDurationSeconds: { type: 'integer' },
             },
           },
           currentRoundMetrics: { $ref: '#/components/schemas/RoundMetrics', nullable: true },
@@ -105,7 +109,8 @@ export const openApiSpec = {
             numSellers: { type: 'integer', default: 3 },
             numBuyers: { type: 'integer', default: 4 },
             maxSellerUnits: { type: 'integer', default: 2 },
-            totalRounds: { type: 'integer', default: 5 },
+            totalRounds: { type: 'integer', default: 20, description: 'Safety ceiling only — the admin ends the game after whichever round via /end-game.' },
+            turnDurationSeconds: { type: 'integer', default: 30, description: 'Seconds each buyer group has to act in the market phase before being auto-skipped.' },
             economics: {
               type: 'object',
               description: 'Optional — defaults to the Holt & Sherman (1999) values. Both tables must be strictly increasing over grades 1→2→3.',
@@ -168,7 +173,7 @@ export const openApiSpec = {
         security: [{ token: [] }],
         parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' } }],
         requestBody: { content: { 'application/json': { schema: { type: 'object', properties: {
-          maxSellerUnits: { type: 'integer' }, totalRounds: { type: 'integer' },
+          maxSellerUnits: { type: 'integer' }, totalRounds: { type: 'integer' }, turnDurationSeconds: { type: 'integer' },
           economics: { type: 'object', properties: {
             buyerValues: { type: 'object' }, sellerFirstCosts: { type: 'object' },
           } },
@@ -265,10 +270,13 @@ export const openApiSpec = {
     },
     '/session/{code}/skip-buyer': {
       post: {
-        summary: 'Skip current buyer turn (admin, market phase)',
+        summary: 'Skip one active buyer\'s turn (admin, market phase)',
         tags: ['Admin'],
         security: [{ token: [] }],
         parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: { content: { 'application/json': { schema: { type: 'object', required: ['buyerId'], properties: {
+          buyerId: { type: 'string', description: 'Must be one of the session\'s current activeBuyerIds.' },
+        }}}}},
         responses: {
           200: { description: 'PublicSession', content: { 'application/json': { schema: { $ref: '#/components/schemas/PublicSession' } } } },
           400: { description: 'Wrong phase', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },

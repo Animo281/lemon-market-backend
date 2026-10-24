@@ -1,27 +1,57 @@
 import { v4 as uuid } from 'uuid'
 import { Session, Player, Role, Grade, EconomicsConfig } from '../shared/types'
-import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS, DEFAULT_ECONOMICS } from '../shared/constants'
+import { DEFAULT_MAX_SELLER_UNITS, DEFAULT_TOTAL_ROUNDS, DEFAULT_ECONOMICS, DEFAULT_TURN_DURATION_SECONDS } from '../shared/constants'
 import { SessionRepository } from '../repositories/sessionRepository'
 import { HttpError } from '../http/httpError'
-import { playersByRole, shuffledBuyerQueue, noPurchase, calculateBuyerEarnings, computeRoundResult, advanceRound, findNextBuyerIndex } from '../lib/gameLogic'
-import { getCurrentPlayerId } from './gameAnalytics'
+import { playersByRole, shuffledBuyerQueue, noPurchase, calculateBuyerEarnings, computeRoundResult, advanceRound, activeBuyerIds } from '../lib/gameLogic'
 
-function checkPhaseTransition(session: Session): void {
+// previousActiveBuyerIds is only used in the 'market' branch, captured by the
+// caller *before* it mutated currentBuyerDecisions. A fresh buyer group has
+// started — and gets its own turnDeadline — exactly when the recomputed
+// active group contains an id that wasn't in that snapshot (within one
+// group, the active set only ever shrinks as members decide). Omitting it
+// (e.g. from kickPlayer, which can reshuffle group membership in ways that
+// aren't a simple "someone decided") always resets the deadline, which is
+// the safe default.
+function checkPhaseTransition(session: Session, previousActiveBuyerIds?: string[]): void {
   if (session.phase === 'seller-input') {
     const sellers = playersByRole(session, 'seller')
     if (sellers.every(s => s.id in session.currentSellerDecisions)) {
       session.phase = 'market'
       session.buyerQueue = shuffledBuyerQueue(session)
-      session.currentBuyerIndex = 0
+      session.turnDeadline = Date.now() + session.turnDurationSeconds * 1000
     }
   } else if (session.phase === 'market') {
-    session.currentBuyerIndex = findNextBuyerIndex(session.buyerQueue, session.currentBuyerDecisions)
     const buyers = playersByRole(session, 'buyer')
     if (Object.keys(session.currentBuyerDecisions).length >= buyers.length) {
       session.results.push(computeRoundResult(session))
       session.phase = 'round-end'
+      session.turnDeadline = null
+    } else {
+      const nowActive = activeBuyerIds(session)
+      const newGroupStarted = previousActiveBuyerIds === undefined
+        || nowActive.some(id => !previousActiveBuyerIds!.includes(id))
+      if (newGroupStarted) {
+        session.turnDeadline = Date.now() + session.turnDurationSeconds * 1000
+      }
     }
   }
+}
+
+// Called at the top of every session request (see sessionMiddleware.ts /
+// worker.ts) so a stale turn gets resolved lazily on the next poll instead
+// of needing a scheduled job — the app already relies on ~1.5s client
+// polling during the market phase, so this is barely perceptible. Returns
+// whether anything changed, so callers know whether to persist.
+export function expireTurnIfNeeded(session: Session): boolean {
+  if (session.phase !== 'market' || session.turnDeadline === null || Date.now() < session.turnDeadline) {
+    return false
+  }
+  const active = activeBuyerIds(session)
+  if (active.length === 0) return false
+  for (const id of active) session.currentBuyerDecisions[id] = noPurchase(id)
+  checkPhaseTransition(session, active)
+  return true
 }
 
 // Math.random().toString(36) always starts with "0." — uppercasing and
@@ -50,6 +80,7 @@ export function createSession(
   totalRounds: number = DEFAULT_TOTAL_ROUNDS,
   requestedCode?: string,
   economics: EconomicsConfig = DEFAULT_ECONOMICS,
+  turnDurationSeconds: number = DEFAULT_TURN_DURATION_SECONDS,
 ): Session {
   const code = requestedCode?.toUpperCase() ?? createUniqueCode(repo)
   if (requestedCode && repo.getByCode(code)) {
@@ -69,7 +100,8 @@ export function createSession(
     infoMode: 'full',
     players: [],
     buyerQueue: [],
-    currentBuyerIndex: 0,
+    turnDeadline: null,
+    turnDurationSeconds,
     currentSellerDecisions: {},
     currentBuyerDecisions: {},
     results: [],
@@ -106,11 +138,13 @@ export function updateConfig(
   maxSellerUnits?: number,
   totalRounds?: number,
   economics?: EconomicsConfig,
+  turnDurationSeconds?: number,
 ): Session {
   if (session.phase !== 'lobby') throw new HttpError(400, 'Einstellungen sind nach Spielstart gesperrt.')
   if (maxSellerUnits !== undefined) session.maxSellerUnits = maxSellerUnits
   if (totalRounds !== undefined) session.totalRounds = totalRounds
   if (economics !== undefined) session.economics = economics
+  if (turnDurationSeconds !== undefined) session.turnDurationSeconds = turnDurationSeconds
   repo.save(session)
   return session
 }
@@ -126,7 +160,6 @@ export function startGame(repo: SessionRepository, session: Session): Session {
   session.currentRound = 1
   session.infoMode = 'full'
   session.buyerQueue = shuffledBuyerQueue(session)
-  session.currentBuyerIndex = 0
   session.currentSellerDecisions = {}
   session.currentBuyerDecisions = {}
   repo.save(session)
@@ -160,9 +193,12 @@ export function submitBuyerDecision(
 ): Session {
   if (session.phase !== 'market') throw new HttpError(400, 'Der Markt ist gerade nicht offen.')
   if (session.currentBuyerDecisions[playerId]) throw new HttpError(400, 'Du hast in dieser Runde schon entschieden.')
-  // Paper procedure (S. 3-4): buyers are drawn by lot and shop one at a time,
-  // in that order — later buyers see which stands already sold out.
-  if (getCurrentPlayerId(session) !== playerId) throw new HttpError(400, 'Du bist noch nicht an der Reihe.')
+  // Paper procedure (S. 3-4): buyers are drawn by lot and shop in order —
+  // later buyers see which stands already sold out. Relaxed to small groups
+  // (BUYER_GROUP_SIZE) acting concurrently instead of strictly one at a time,
+  // to keep a 24-buyer classroom moving.
+  const before = activeBuyerIds(session)
+  if (!before.includes(playerId)) throw new HttpError(400, 'Du bist noch nicht an der Reihe.')
 
   let grade = null
   let price = null
@@ -188,7 +224,7 @@ export function submitBuyerDecision(
 
   session.currentBuyerDecisions[playerId] = { playerId, sellerId, grade, price, earnings }
 
-  checkPhaseTransition(session)
+  checkPhaseTransition(session, before)
 
   repo.save(session)
   return session
@@ -231,26 +267,27 @@ export function kickPlayer(repo: SessionRepository, session: Session, playerId: 
     }
   }
 
+  const activeBefore = session.phase === 'market' ? activeBuyerIds(session) : undefined
+
   session.players = session.players.filter(p => p.id !== playerId)
   session.buyerQueue = session.buyerQueue.filter(id => id !== playerId)
   delete session.currentSellerDecisions[playerId]
   delete session.currentBuyerDecisions[playerId]
 
-  checkPhaseTransition(session)
+  checkPhaseTransition(session, activeBefore)
   repo.save(session)
   return session
 }
 
-export function skipCurrentBuyer(repo: SessionRepository, session: Session): Session {
+export function skipBuyer(repo: SessionRepository, session: Session, buyerId: string): Session {
   if (session.phase !== 'market') throw new HttpError(400, 'Der Markt ist gerade nicht offen.')
 
-  const currentPlayerId = session.buyerQueue[session.currentBuyerIndex] ?? null
-  if (!currentPlayerId) throw new HttpError(400, 'Kein Käufer ist gerade an der Reihe.')
-  if (session.currentBuyerDecisions[currentPlayerId]) throw new HttpError(400, 'Dieser Käufer hat bereits entschieden.')
+  const active = activeBuyerIds(session)
+  if (!active.includes(buyerId)) throw new HttpError(400, 'Dieser Käufer ist gerade nicht an der Reihe.')
 
-  session.currentBuyerDecisions[currentPlayerId] = noPurchase(currentPlayerId)
+  session.currentBuyerDecisions[buyerId] = noPurchase(buyerId)
 
-  checkPhaseTransition(session)
+  checkPhaseTransition(session, active)
   repo.save(session)
   return session
 }

@@ -48,9 +48,12 @@ private information tables").
 
 1. Verkäufer geben Qualität + Preis + Stückzahl (1…`maxSellerUnits`) ein (verdeckt)
 2. Alle bestätigt → Board wird aufgedeckt (je nach `infoMode`)
-3. Käufer kaufen **in der ausgelosten Reihenfolge, einer nach dem anderen** —
-   `POST /buyer-decision` von jemand anderem als dem aktuellen Käufer
-   (`currentPlayerId`) wird mit 400 abgelehnt
+3. Käufer kaufen **in der ausgelosten Reihenfolge, in Gruppen von `BUYER_GROUP_SIZE`
+   (3) gleichzeitig** — `POST /buyer-decision` von jemandem außerhalb der aktuell
+   aktiven Gruppe (`activeBuyerIds`) wird mit 400 abgelehnt. Jede Gruppe hat ein
+   gemeinsames Zeitlimit (`turnDurationSeconds`, Default 30s, Dozent einstellbar);
+   läuft die `turnDeadline` ab, werden alle noch unentschiedenen Mitglieder der
+   Gruppe automatisch übersprungen (lazy, beim nächsten Request — kein Scheduler)
 4. Rundenende → Gewinne berechnet, Ergebnistabelle aktualisiert
 
 Es gibt keinen gesonderten Bestätigungsschritt für die zweite Einheit — der Verkäufer
@@ -144,7 +147,8 @@ export interface Session {
   infoMode: InfoMode
   players: Player[]
   buyerQueue: string[]       // gemischte IDs für aktuelle Runde
-  currentBuyerIndex: number
+  turnDeadline: number | null   // epoch ms, null außerhalb der Marktphase
+  turnDurationSeconds: number
   currentSellerDecisions: Record<string, Partial<SellerDecision>>
   currentBuyerDecisions: Record<string, BuyerDecision>
   results: RoundResult[]
@@ -157,16 +161,17 @@ export interface Session {
 
 | Method | Route | Body | Beschreibung |
 |--------|-------|------|--------------|
-| POST | `/api/session` | `{ numSellers, numBuyers, maxSellerUnits?, totalRounds?, economics? }` | Neue Session anlegen → `{ code, adminToken, sessionId }` |
+| POST | `/api/session` | `{ numSellers, numBuyers, maxSellerUnits?, totalRounds?, economics?, turnDurationSeconds? }` | Neue Session anlegen → `{ code, adminToken, sessionId }` |
 | GET | `/api/session/:code` | — | Aktuellen (viewer-maskierten) Session-State holen |
 | POST | `/api/session/:code/join` | `{ name, role, slotIndex }` | Als Verkäufer/Käufer beitreten |
 | POST | `/api/session/:code/start` | — | Spiel starten (Admin) |
-| PATCH | `/api/session/:code/config` | `{ maxSellerUnits?, totalRounds?, economics? }` | Einstellungen ändern, nur in `lobby` (Admin) |
+| PATCH | `/api/session/:code/config` | `{ maxSellerUnits?, totalRounds?, economics?, turnDurationSeconds? }` | Einstellungen ändern, nur in `lobby` (Admin) |
 | POST | `/api/session/:code/seller-decision` | `{ grade, price, unitsOffered? }` | Verkäufer gibt Entscheidung ab |
-| POST | `/api/session/:code/buyer-decision` | `{ sellerId }` | Käufer kauft (oder nicht: `sellerId: null`) — nur wenn dieser Käufer an der Reihe ist |
+| POST | `/api/session/:code/buyer-decision` | `{ sellerId }` | Käufer kauft (oder nicht: `sellerId: null`) — nur wenn dieser Käufer Teil der aktiven Gruppe ist |
 | POST | `/api/session/:code/toggle-info-mode` | — | Info-Modus umschalten (Admin, jede Phase) |
 | POST | `/api/session/:code/next-round` | — | Nächste Runde starten (Admin) |
-| POST | `/api/session/:code/skip-buyer` | — | Aktuellen Käufer überspringen (Admin) |
+| POST | `/api/session/:code/end-game` | — | Spiel nach dieser Runde beenden (Admin) |
+| POST | `/api/session/:code/skip-buyer` | `{ buyerId }` | Diesen aktiven Käufer überspringen (Admin) |
 | POST | `/api/session/:code/force-advance` | — | Fehlende Verkäuferentscheidungen mit Platzhalter füllen (Admin) |
 | DELETE | `/api/session/:code/players/:playerId` | — | Spieler entfernen (Admin) |
 

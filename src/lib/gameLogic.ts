@@ -1,5 +1,6 @@
 import { Grade, Session, Player, Role, RoundResult, SellerDecision, BuyerDecision } from '../shared/types'
 import { computeSellerEarnings, computeRoundMetrics } from '../services/gameAnalytics'
+import { BUYER_GROUP_SIZE } from '../shared/constants'
 
 export function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr]
@@ -31,15 +32,19 @@ export function calculateBuyerEarnings(
   return Math.round((buyerValues[grade] - price) * 100) / 100
 }
 
-// Returns the index of the first buyer in the queue without a decision yet,
-// or buyerQueue.length once everyone has decided. Derived rather than
-// incremented so it stays correct even if a kick removes entries mid-round.
-export function findNextBuyerIndex(
-  buyerQueue: string[],
-  decisions: Record<string, unknown>,
-): number {
-  const next = buyerQueue.findIndex(id => !(id in decisions))
-  return next === -1 ? buyerQueue.length : next
+// The buyers who may currently submit a decision: up to BUYER_GROUP_SIZE
+// consecutive buyers from the queue, starting at the first undecided one,
+// chunked into fixed BUYER_GROUP_SIZE-sized groups (chunk 0 = queue[0..n),
+// chunk 1 = queue[n..2n), ...). Buyers in an earlier chunk have already
+// decided; buyers in a later chunk aren't up yet. Derived rather than
+// cached so it stays correct even if a kick removes entries mid-round.
+export function activeBuyerIds(session: Session): string[] {
+  const firstUndecided = session.buyerQueue.findIndex(id => !(id in session.currentBuyerDecisions))
+  if (firstUndecided === -1) return []
+  const chunkStart = Math.floor(firstUndecided / BUYER_GROUP_SIZE) * BUYER_GROUP_SIZE
+  return session.buyerQueue
+    .slice(chunkStart, chunkStart + BUYER_GROUP_SIZE)
+    .filter(id => !(id in session.currentBuyerDecisions))
 }
 
 export function computeRoundResult(session: Session): RoundResult {
@@ -84,7 +89,7 @@ export function advanceRound(session: Session): Session {
     currentRound: isGameEnd ? session.totalRounds : nextRound,
     phase: isGameEnd ? 'game-end' : 'seller-input',
     buyerQueue: shuffledBuyerQueue(session),
-    currentBuyerIndex: 0,
+    turnDeadline: null,
     currentSellerDecisions: {},
     currentBuyerDecisions: {},
   }

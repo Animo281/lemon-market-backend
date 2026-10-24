@@ -128,11 +128,6 @@ export function computeRoundMetrics(
   }
 }
 
-export function getCurrentPlayerId(session: Session): string | null {
-  if (session.phase !== 'market') return null
-  return session.buyerQueue[session.currentBuyerIndex] ?? null
-}
-
 export function computeAvailableOffers(session: Session): AvailableOffer[] {
   const sellers = session.players.filter(p => p.role === 'seller')
   return sellers.map(seller => {

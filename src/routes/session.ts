@@ -9,6 +9,7 @@ import {
   configSessionSchema,
   sellerDecisionSchema,
   buyerDecisionSchema,
+  skipBuyerSchema,
 } from '../schemas/session'
 
 export function createSessionRouter(repo: SessionRepository): Router {
@@ -31,7 +32,7 @@ export function createSessionRouter(repo: SessionRepository): Router {
   router.post('/:code/next-round', loadSession, requireAdmin, resolveViewer, ctrl.nextRound)
   router.post('/:code/end-game', loadSession, requireAdmin, resolveViewer, ctrl.endGame)
   router.delete('/:code/players/:playerId', loadSession, requireAdmin, resolveViewer, ctrl.kick)
-  router.post('/:code/skip-buyer', loadSession, requireAdmin, resolveViewer, ctrl.skipBuyer)
+  router.post('/:code/skip-buyer', loadSession, requireAdmin, resolveViewer, validate(skipBuyerSchema), ctrl.skipBuyer)
   router.post('/:code/force-advance', loadSession, requireAdmin, resolveViewer, ctrl.forceAdvance)
 
   return router

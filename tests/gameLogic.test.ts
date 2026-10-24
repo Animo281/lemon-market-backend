@@ -1,7 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { calculateBuyerEarnings, shuffleArray, computeRoundResult, findNextBuyerIndex } from '../src/lib/gameLogic'
+import { calculateBuyerEarnings, shuffleArray, computeRoundResult, activeBuyerIds } from '../src/lib/gameLogic'
 import { Session } from '../src/shared/types'
-import { DEFAULT_BUYER_VALUES, DEFAULT_ECONOMICS } from '../src/shared/constants'
+import { DEFAULT_BUYER_VALUES, DEFAULT_ECONOMICS, BUYER_GROUP_SIZE } from '../src/shared/constants'
+
+function sessionWithQueue(buyerQueue: string[], currentBuyerDecisions: Record<string, unknown> = {}): Session {
+  return {
+    id: 's1', code: 'TEST', adminToken: 'admin',
+    numSellers: 1, numBuyers: buyerQueue.length,
+    maxSellerUnits: 2, totalRounds: 5,
+    economics: DEFAULT_ECONOMICS,
+    phase: 'market', currentRound: 1, infoMode: 'full',
+    players: [],
+    buyerQueue, turnDeadline: null, turnDurationSeconds: 30,
+    currentSellerDecisions: {},
+    currentBuyerDecisions: currentBuyerDecisions as Session['currentBuyerDecisions'],
+    results: [],
+  }
+}
 
 describe('calculateBuyerEarnings', () => {
   it('returns 0 when grade or price is null', () => {
@@ -46,25 +61,27 @@ describe('shuffleArray', () => {
   })
 })
 
-describe('findNextBuyerIndex', () => {
-  it('returns 0 when nobody has decided yet', () => {
-    expect(findNextBuyerIndex(['b1', 'b2', 'b3'], {})).toBe(0)
+describe('activeBuyerIds', () => {
+  it('returns the first BUYER_GROUP_SIZE buyers when nobody has decided yet', () => {
+    expect(BUYER_GROUP_SIZE).toBe(3)
+    expect(activeBuyerIds(sessionWithQueue(['b1', 'b2', 'b3', 'b4']))).toEqual(['b1', 'b2', 'b3'])
   })
 
-  it('returns the index of the first undecided buyer', () => {
-    expect(findNextBuyerIndex(['b1', 'b2', 'b3'], { b1: {} })).toBe(1)
+  it('shrinks as members of the active group decide, without pulling in the next group', () => {
+    expect(activeBuyerIds(sessionWithQueue(['b1', 'b2', 'b3', 'b4'], { b1: {} }))).toEqual(['b2', 'b3'])
   })
 
-  it('skips over a gap left by an already-decided buyer in the middle', () => {
-    expect(findNextBuyerIndex(['b1', 'b2', 'b3'], { b1: {}, b3: {} })).toBe(1)
+  it('moves to the next group once the whole current group has decided', () => {
+    const session = sessionWithQueue(['b1', 'b2', 'b3', 'b4', 'b5'], { b1: {}, b2: {}, b3: {} })
+    expect(activeBuyerIds(session)).toEqual(['b4', 'b5'])
   })
 
-  it('returns buyerQueue.length once everyone has decided', () => {
-    expect(findNextBuyerIndex(['b1', 'b2'], { b1: {}, b2: {} })).toBe(2)
+  it('returns an empty array once everyone has decided', () => {
+    expect(activeBuyerIds(sessionWithQueue(['b1', 'b2'], { b1: {}, b2: {} }))).toEqual([])
   })
 
-  it('returns 0 for an empty queue', () => {
-    expect(findNextBuyerIndex([], {})).toBe(0)
+  it('returns an empty array for an empty queue', () => {
+    expect(activeBuyerIds(sessionWithQueue([]))).toEqual([])
   })
 })
 
@@ -80,7 +97,7 @@ describe('computeRoundResult', () => {
         { id: 'seller1', token: 'tok1', name: 'Alice', role: 'seller', slotIndex: 0 },
         { id: 'buyer1', token: 'tok2', name: 'Bob', role: 'buyer', slotIndex: 0 },
       ],
-      buyerQueue: ['buyer1'], currentBuyerIndex: 0,
+      buyerQueue: ['buyer1'], turnDeadline: null, turnDurationSeconds: 30,
       currentSellerDecisions: {
         seller1: { playerId: 'seller1', grade: 2, price: 6.0, unitsOffered: 2, unitsSold: 1 },
       },

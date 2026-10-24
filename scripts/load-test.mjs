@@ -167,7 +167,7 @@ class VirtualPlayer {
       return
     }
 
-    if (this.role === 'buyer' && session.phase === 'market' && session.currentPlayerId === this.playerId) {
+    if (this.role === 'buyer' && session.phase === 'market' && session.activeBuyerIds?.includes(this.playerId)) {
       if (session.currentBuyerDecisions[this.playerId]) return
       await sleep(rand(500, 2000) / SPEED)
       const sellersWithStock = Object.values(session.currentSellerDecisions)
