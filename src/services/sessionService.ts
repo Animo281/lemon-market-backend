@@ -207,6 +207,15 @@ export function advanceToNextRound(repo: SessionRepository, session: Session): S
   return session
 }
 
+// Lets the admin end the game after any round instead of waiting for
+// totalRounds to be reached — rounds are no longer fixed up front.
+export function endGame(repo: SessionRepository, session: Session): Session {
+  if (session.phase !== 'round-end') throw new HttpError(400, 'Diese Runde ist noch nicht beendet.')
+  session.phase = 'game-end'
+  repo.save(session)
+  return session
+}
+
 export function kickPlayer(repo: SessionRepository, session: Session, playerId: string): Session {
   const player = session.players.find(p => p.id === playerId)
   if (!player) throw new HttpError(404, 'Spieler nicht gefunden.')

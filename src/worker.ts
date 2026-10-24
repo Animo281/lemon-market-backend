@@ -238,6 +238,9 @@ export class SessionDurableObject extends DurableObject<Env> {
       } else if (request.method === 'POST' && suffix === 'next-round') {
         requireAdmin(this.session, request)
         payload = toPublic(service.advanceToNextRound(repo, this.session), viewer)
+      } else if (request.method === 'POST' && suffix === 'end-game') {
+        requireAdmin(this.session, request)
+        payload = toPublic(service.endGame(repo, this.session), viewer)
       } else if (request.method === 'POST' && suffix === 'skip-buyer') {
         requireAdmin(this.session, request)
         payload = toPublic(service.skipCurrentBuyer(repo, this.session), viewer)

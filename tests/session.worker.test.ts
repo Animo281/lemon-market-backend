@@ -143,6 +143,34 @@ describe('Worker API with SQLite Durable Objects', () => {
     expect(gameEnd.body.currentRound).toBe(1)
   })
 
+  it('lets the admin end the game from round-end before totalRounds is reached', async () => {
+    const created = await createSession({ totalRounds: 20 })
+    const sellerJoin = await post<JoinResponse>(`/api/session/${created.code}/join`, {
+      name: 'Verkäuferin', role: 'seller', slotIndex: 0,
+    })
+    const buyerJoin = await post<JoinResponse>(`/api/session/${created.code}/join`, {
+      name: 'Käufer', role: 'buyer', slotIndex: 0,
+    })
+    await post(`/api/session/${created.code}/start`, undefined, created.adminToken)
+    await post(
+      `/api/session/${created.code}/seller-decision`,
+      { grade: 2, price: 6, unitsOffered: 1 },
+      sellerJoin.body.playerToken,
+    )
+    await post(
+      `/api/session/${created.code}/buyer-decision`,
+      { sellerId: sellerJoin.body.playerId },
+      buyerJoin.body.playerToken,
+    )
+
+    expect((await post(`/api/session/${created.code}/end-game`, undefined, 'wrong')).response.status).toBe(403)
+
+    const ended = await post<SessionResponse>(`/api/session/${created.code}/end-game`, undefined, created.adminToken)
+    expect(ended.response.status).toBe(200)
+    expect(ended.body.phase).toBe('game-end')
+    expect(ended.body.currentRound).toBe(1)
+  })
+
   it('returns JSON errors for validation, malformed JSON, unknown codes, and API misses', async () => {
     const invalid = await post<{ issues?: unknown[] }>('/api/session', { numSellers: 0, numBuyers: 1 })
     expect(invalid.response.status).toBe(400)

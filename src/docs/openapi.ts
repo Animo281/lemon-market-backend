@@ -234,6 +234,19 @@ export const openApiSpec = {
         },
       },
     },
+    '/session/{code}/end-game': {
+      post: {
+        summary: 'End the game after the current round instead of advancing (admin)',
+        tags: ['Admin'],
+        security: [{ token: [] }],
+        parameters: [{ name: 'code', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: { description: 'PublicSession', content: { 'application/json': { schema: { $ref: '#/components/schemas/PublicSession' } } } },
+          400: { description: 'Round not finished yet', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          403: { description: 'Forbidden', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
     '/session/{code}/players/{playerId}': {
       delete: {
         summary: 'Kick player (admin)',

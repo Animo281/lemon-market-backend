@@ -48,6 +48,10 @@ export function createSessionController(repo: SessionRepository) {
       res.json(toPublic(service.advanceToNextRound(repo, req.session!), req.viewer))
     },
 
+    endGame(req: Request, res: Response): void {
+      res.json(toPublic(service.endGame(repo, req.session!), req.viewer))
+    },
+
     kick(req: Request, res: Response): void {
       res.json(toPublic(service.kickPlayer(repo, req.session!, req.params.playerId), req.viewer))
     },
